@@ -193,6 +193,15 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "ctrl+c" {
+		// While an action runs, a hard quit would orphan the live rsync (its
+		// context is never canceled on Quit), so Ctrl+C is routed through the
+		// same cancel confirm as Esc. Elsewhere it stays an immediate quit.
+		if m.running() {
+			if m.mode != modeConfirm {
+				m.openCancelConfirm()
+			}
+			return m, nil
+		}
 		return m, tea.Quit
 	}
 	if ws, ok := msg.(tea.WindowSizeMsg); ok {
@@ -229,27 +238,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForMsg(res.ch)
 	}
 	if res, ok := msg.(actionResultMsg); ok {
-		m.applyActionResult(res)
-		// A canceled or superseded action's terminal result is a straggler: skip the
-		// sanity/Contents refresh it would otherwise trigger (applyActionResult has
-		// already dropped its display).
-		if res.seq != m.actionSeq {
-			return m, nil
-		}
-		p := m.cfg.Profiles[res.name]
-		// Refresh the sanity mark since the marker changed.
-		cmds := []tea.Cmd{sanityCmd(res.name, p, m.cfg.RsyncPath)}
-		// A successful mutating action changed the local tree, so re-scan it to
-		// refresh the Contents summary in the Details box. Only while still on the
-		// profile view — a released check-in has returned to the list — and never
-		// for a dry run, which wrote nothing. The Activity panel keeps showing the
-		// applied result; only the Details Contents block is refreshed.
-		if res.err == nil && !res.report.DryRun && m.sub == subActions && m.profile.name == res.name {
-			m.profile.scanning = true
-			m.profile.statErr = nil
-			cmds = append(cmds, localStatCmd(res.name, p, m.actionSeq))
-		}
-		return m, tea.Batch(cmds...)
+		return m.handleActionResult(res)
 	}
 	switch m.mode {
 	case modeForm:
@@ -261,6 +250,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return m.updateMain(msg)
 	}
+}
+
+// handleActionResult applies a mutating action's terminal result and issues
+// the follow-up refreshes (sanity mark, Contents re-scan) it warrants.
+func (m model) handleActionResult(res actionResultMsg) (tea.Model, tea.Cmd) {
+	m.applyActionResult(res)
+	// A canceled or superseded action's terminal result is a straggler: skip the
+	// sanity/Contents refresh it would otherwise trigger (applyActionResult has
+	// already dropped its display).
+	if res.seq != m.actionSeq {
+		return m, nil
+	}
+	p := m.cfg.Profiles[res.name]
+	// Refresh the sanity mark since the marker changed.
+	cmds := []tea.Cmd{sanityCmd(res.name, p, m.cfg.RsyncPath)}
+	// A successful mutating action changed the local tree, so re-scan it to
+	// refresh the Contents summary in the Details box. Only while still on the
+	// profile view — a released check-in has returned to the list — and never
+	// for a dry run, which wrote nothing. The Activity panel keeps showing the
+	// applied result; only the Details Contents block is refreshed.
+	if res.err == nil && !res.report.DryRun && m.sub == subActions && m.profile.name == res.name {
+		m.profile.scanning = true
+		m.profile.statErr = nil
+		cmds = append(cmds, localStatCmd(res.name, p, m.actionSeq))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -447,6 +462,7 @@ func (m *model) applyStatusResult(res statusResultMsg) {
 		m.cancel = nil
 	}
 	m.profile.checking = false
+	m.pane = paneActions // the run is over; hand focus back to the action list
 	if res.err != nil {
 		m.profile.err = res.err
 		m.profile.result = nil
@@ -642,6 +658,7 @@ func (m *model) applyActionResult(res actionResultMsg) {
 		return
 	}
 	m.profile.acting = false
+	m.pane = paneActions // the run is over; hand focus back to the action list
 	rep := res.report
 	m.profile.actionReport = &rep
 	m.profile.actionErr = res.err
@@ -679,15 +696,30 @@ func (m *model) applyActionResult(res actionResultMsg) {
 	}
 }
 
+// running reports whether an operation is in flight on the open profile: a
+// streaming mutation (Sync/Checkout/Check-in) or a Status compute. While
+// running, the profile view is locked to monitoring the Activity panel and
+// canceling — no other operation can be started.
+func (m model) running() bool {
+	return m.profile.acting || m.profile.checking
+}
+
+// openCancelConfirm opens the confirm dialog that guards stopping the
+// in-flight action, focused on the safe "Keep running" button. Shared by
+// Esc/q in the profile view and the Ctrl+C intercept.
+func (m *model) openCancelConfirm() {
+	m.confirmName = m.profile.name
+	m.confirmKind = confirmCancel
+	m.confirmFocus = confirmFocusCancel // safe default: reaching "Stop" needs a move
+	m.mode = modeConfirm
+}
+
 // escProfile handles Esc in the profile actions view. While an action is in
 // flight it opens the cancel confirm rather than silently leaving the work
 // running in the background; otherwise it returns to the profile list.
 func (m model) escProfile() (tea.Model, tea.Cmd) {
-	if m.profile.acting || m.profile.checking {
-		m.confirmName = m.profile.name
-		m.confirmKind = confirmCancel
-		m.confirmFocus = confirmFocusCancel // safe default: reaching "Stop" needs a move
-		m.mode = modeConfirm
+	if m.running() {
+		m.openCancelConfirm()
 		return m, nil
 	}
 	m.sub = subList
@@ -700,8 +732,29 @@ func (m model) updateProfile(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	actions := visibleActions(m.checks[m.profile.name], m.id)
+	// While an action runs the view is locked to monitoring: only the Activity
+	// scroll keys are live, and esc/q open the cancel confirm. Tab (pane
+	// switching) and enter (launching another operation) are ignored.
+	if m.running() {
+		switch key.String() {
+		case "esc", "q":
+			return m.escProfile()
+		case "up", "w":
+			m.scrollActivity(-1)
+		case "down", "s":
+			m.scrollActivity(1)
+		case "pgup":
+			_, ih := m.activityGeometry()
+			m.scrollActivity(-step(ih))
+		case "pgdown":
+			_, ih := m.activityGeometry()
+			m.scrollActivity(step(ih))
+		}
+		return m, nil
+	}
 	// Keys handled the same in both panes: Tab toggles focus and Esc leaves the
-	// profile for the list (from either pane).
+	// profile for the list (from either pane). q stays intentionally unbound
+	// here — it only means "quit" on the plain profile list.
 	switch key.String() {
 	case "esc":
 		return m.escProfile()
@@ -756,6 +809,7 @@ func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case "Status":
 		m.profile.checking = true
+		m.pane = paneActivity // lock focus to the Activity panel while it runs
 		m.profile.err = nil
 		m.profile.result = nil
 		m.profile.statusScroll = 0
@@ -965,7 +1019,7 @@ func (m model) mainView(dim bool) string {
 	var topTitle, topBody, name string
 	if m.sub == subActions {
 		topTitle = "Actions"
-		topBody = renderActions(m.profile.cursor, leftW-2, m.checks[m.profile.name], m.id)
+		topBody = renderActions(m.profile.cursor, leftW-2, m.checks[m.profile.name], m.id, m.running())
 		name = m.profile.name
 	} else {
 		topTitle = "Profiles"
@@ -994,7 +1048,7 @@ func (m model) mainView(dim bool) string {
 
 	footer := renderFooter(w)
 	if m.sub == subActions {
-		footer = renderProfileFooter(w, m.pane == paneActivity)
+		footer = renderProfileFooter(w, m.pane == paneActivity, m.running())
 	}
 	view := renderHeader(w, m.version, m.identity) + "\n" + panels + "\n" + footer
 	if m.err != nil {

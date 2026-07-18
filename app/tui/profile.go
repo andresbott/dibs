@@ -102,17 +102,21 @@ func actionGlyph(a string) string {
 // action (visibleActions) — the selected row marked and accented. The profile
 // name and checkout-state indicator both live in the Details box below, so the
 // Actions box stays focused on the action list; before sanity has returned there
-// are no actions.
-func renderActions(cursor, width int, res *sanity.Result, id ident.Ident) string {
+// are no actions. While an action runs the whole list renders dimmed with no
+// cursor marker: nothing can be launched until the run finishes or is canceled.
+func renderActions(cursor, width int, res *sanity.Result, id ident.Ident, running bool) string {
 	var b strings.Builder
 	for i, a := range visibleActions(res, id) {
 		if i > 0 {
 			b.WriteString("\n")
 		}
 		var row string
-		if i == cursor {
+		switch {
+		case running:
+			row = "  " + helpTextStyle.Render(actionGlyph(a)+" "+a)
+		case i == cursor:
 			row = "▸ " + selectedRowStyle.Render(actionGlyph(a)+" "+a)
-		} else {
+		default:
 			row = "  " + helpTextStyle.Render(actionGlyph(a)) + " " + a
 		}
 		b.WriteString(ansi.Truncate(row, width, ""))

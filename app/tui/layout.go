@@ -43,13 +43,20 @@ func renderFooter(width int) string {
 // live as checkboxes in that action's confirm dialog, not on this bar. The
 // hints are pane-aware: the Actions pane offers Run/Select plus a Tab to the
 // Activity panel; the Activity pane offers the scroll keys plus a Tab back.
-func renderProfileFooter(width int, activityFocused bool) string {
+// While an action runs only monitoring and canceling apply, so the bar shows
+// just those.
+func renderProfileFooter(width int, activityFocused, running bool) string {
 	var parts []string
-	if activityFocused {
+	switch {
+	case running:
+		parts = []string{
+			hint("↑↓/PgUp/PgDn", "Scroll"), hint("esc", "Cancel"),
+		}
+	case activityFocused:
 		parts = []string{
 			hint("↑↓/PgUp/PgDn", "Scroll"), hint("tab", "Actions"), hint("esc", "Back"),
 		}
-	} else {
+	default:
 		parts = []string{
 			hint("↵", "Run"), hint("↑↓", "Select"), hint("tab", "Activity"), hint("esc", "Back"),
 		}

@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

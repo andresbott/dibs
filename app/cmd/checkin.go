@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/andresbott/netcheckout/app/metainfo"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
+	"github.com/andresbott/dibs/app/metainfo"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/lifecycle"
 	"github.com/spf13/cobra"
 )
 
@@ -78,7 +78,7 @@ func printCheckinReport(w io.Writer, name string, rep lifecycle.Report, err erro
 			_, _ = fmt.Fprintf(w, "%s: dry-run — in sync; checkin would release the lock\n", name)
 			return
 		}
-		_, _ = fmt.Fprintf(w, "%s: dry-run — %d unsynced change(s); checkin would fail (run 'netcheckout sync %s' first):\n", name, pending, name)
+		_, _ = fmt.Fprintf(w, "%s: dry-run — %d unsynced change(s); checkin would fail (run 'dibs sync %s' first):\n", name, pending, name)
 		printCheckinPending(w, rep)
 	case err != nil:
 		if pending == 0 {

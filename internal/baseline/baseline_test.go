@@ -7,18 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 func stateDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("NETCHECKOUT_STATE", dir)
+	t.Setenv("DIBS_STATE", dir)
 	return dir
 }
 
 func TestDirHonorsStateOverride(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", "/tmp/state-x")
+	t.Setenv("DIBS_STATE", "/tmp/state-x")
 	got, err := Dir()
 	if err != nil || got != "/tmp/state-x" {
 		t.Fatalf("Dir = %q, %v; want /tmp/state-x", got, err)
@@ -208,23 +208,23 @@ func TestScopeNormalization(t *testing.T) {
 
 func TestDirFallbackChain(t *testing.T) {
 	t.Run("XDG_STATE_HOME", func(t *testing.T) {
-		t.Setenv("NETCHECKOUT_STATE", "")
+		t.Setenv("DIBS_STATE", "")
 		t.Setenv("XDG_STATE_HOME", "/tmp/xdg-state")
 		got, err := Dir()
-		if err != nil || got != "/tmp/xdg-state/netcheckout" {
-			t.Fatalf("Dir = %q, %v; want /tmp/xdg-state/netcheckout", got, err)
+		if err != nil || got != "/tmp/xdg-state/dibs" {
+			t.Fatalf("Dir = %q, %v; want /tmp/xdg-state/dibs", got, err)
 		}
 	})
 
 	t.Run("UserHomeDir fallback", func(t *testing.T) {
-		t.Setenv("NETCHECKOUT_STATE", "")
+		t.Setenv("DIBS_STATE", "")
 		t.Setenv("XDG_STATE_HOME", "")
 		home, err := os.UserHomeDir()
 		if err != nil {
 			t.Skipf("os.UserHomeDir() failed: %v", err)
 		}
 		got, err := Dir()
-		want := filepath.Join(home, ".local", "state", "netcheckout")
+		want := filepath.Join(home, ".local", "state", "dibs")
 		if err != nil || got != want {
 			t.Fatalf("Dir = %q, %v; want %q", got, err, want)
 		}
@@ -234,7 +234,7 @@ func TestDirFallbackChain(t *testing.T) {
 func TestSaveCreatesDirectory(t *testing.T) {
 	dir := t.TempDir()
 	nested := filepath.Join(dir, "deep", "nested", "state")
-	t.Setenv("NETCHECKOUT_STATE", nested)
+	t.Setenv("DIBS_STATE", nested)
 
 	s := &State{Profile: "p", Files: threewayrsync.Manifest{}}
 	if err := Save(s); err != nil {

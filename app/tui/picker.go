@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

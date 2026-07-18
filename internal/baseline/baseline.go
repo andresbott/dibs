@@ -1,5 +1,5 @@
 // Package baseline stores the per-profile checkout state: the base ("last-synced")
-// manifest that powers threewayrsync's three-way merge (GOALS.md §6), plus the relpaths
+// manifest that powers threewayrsync's three-way merge, plus the relpaths
 // covered and the last sync time. It lives in a local state file, never on the remote,
 // and exposes a threewayrsync.Store so the sync engine loads and commits the base itself.
 package baseline
@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 // State is a profile's checkout state. Files is the base manifest — size and mtime per
@@ -49,20 +49,20 @@ func (s *State) Scope() []string {
 	return scope
 }
 
-// Dir returns the state directory: $NETCHECKOUT_STATE, else
-// $XDG_STATE_HOME/netcheckout, else ~/.local/state/netcheckout.
+// Dir returns the state directory: $DIBS_STATE, else
+// $XDG_STATE_HOME/dibs, else ~/.local/state/dibs.
 func Dir() (string, error) {
-	if p := os.Getenv("NETCHECKOUT_STATE"); p != "" {
+	if p := os.Getenv("DIBS_STATE"); p != "" {
 		return p, nil
 	}
 	if p := os.Getenv("XDG_STATE_HOME"); p != "" {
-		return filepath.Join(p, "netcheckout"), nil
+		return filepath.Join(p, "dibs"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "state", "netcheckout"), nil
+	return filepath.Join(home, ".local", "state", "dibs"), nil
 }
 
 func statePath(profile string) (string, error) {
@@ -114,7 +114,7 @@ func Save(s *State) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".netcheckout-state-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".dibs-state-*.tmp")
 	if err != nil {
 		return err
 	}

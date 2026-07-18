@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
 	"github.com/spf13/cobra"
 )
 
@@ -44,7 +44,7 @@ func newInitCmd(cfgPath *string) *cobra.Command {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"Created %s\n  identity: %s\nRun 'netcheckout' to add profiles.\n", path, id)
+				"Created %s\n  identity: %s\nRun 'dibs' to add profiles.\n", path, id)
 			return nil
 		},
 	}

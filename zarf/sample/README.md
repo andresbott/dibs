@@ -1,4 +1,4 @@
-# Sample netcheckout config
+# Sample dibs config
 
 A ready-to-read example showing the config format and the local/remote-root
 layout for three profiles (`photos`, `work`, and `music`).
@@ -11,14 +11,14 @@ layout for three profiles (`photos`, `work`, and `music`).
   each `remote/`).
 
 Roots in `config.yaml` must be **absolute** paths. The example uses a
-`/path/to/netcheckout/...` placeholder — replace it with the absolute path to
+`/path/to/dibs/...` placeholder — replace it with the absolute path to
 your checkout to try it against these folders:
 
 ```bash
-netcheckout --config zarf/sample/config.yaml list
+dibs --config zarf/sample/config.yaml list
 ```
 
-Run without `--config` and `netcheckout` reads `$NETCHECKOUT_CONFIG`, or the OS
-config dir (Linux `~/.config/netcheckout/config.yaml`, macOS
-`~/Library/Application Support/netcheckout/config.yaml`, Windows
-`%AppData%\netcheckout\config.yaml`).
+Run without `--config` and `dibs` reads `$DIBS_CONFIG`, or the OS
+config dir (Linux `~/.config/dibs/config.yaml`, macOS
+`~/Library/Application Support/dibs/config.yaml`, Windows
+`%AppData%\dibs\config.yaml`).

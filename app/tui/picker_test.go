@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -548,14 +548,14 @@ func TestEllipsisLeft(t *testing.T) {
 	if got := ellipsisLeft("short", 10); got != "short" {
 		t.Fatalf("short unchanged: got %q", got)
 	}
-	got := ellipsisLeft("/home/andres/projects/netcheckout", 12)
+	got := ellipsisLeft("/home/andres/projects/dibs", 12)
 	if lipgloss.Width(got) > 12 {
 		t.Fatalf("too wide: %q (%d)", got, lipgloss.Width(got))
 	}
 	if !strings.HasPrefix(got, "…") {
 		t.Fatalf("want left ellipsis, got %q", got)
 	}
-	if !strings.HasSuffix(got, "netcheckout") {
+	if !strings.HasSuffix(got, "dibs") {
 		t.Fatalf("want tail preserved, got %q", got)
 	}
 }

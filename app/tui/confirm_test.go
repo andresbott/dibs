@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/internal/sanity"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/internal/sanity"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -304,7 +304,7 @@ func TestCheckinCheckboxTogglesAbandon(t *testing.T) {
 // the checkbox state reaches lifecycle.Options.Abandon (a plain check-in would
 // refuse here).
 func TestCheckinAbandonPassedToRunner(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	name, p, id := tuiHeldFixture(t)
 	// An unsynced local edit that a plain check-in would refuse over.
 	if err := os.WriteFile(filepath.Join(p.LocalRoot, "keep.txt"), []byte("EDITED-LONGER"), 0o644); err != nil {
@@ -492,7 +492,7 @@ func TestCheckoutForeignOpensWithStealUnchecked(t *testing.T) {
 // through the runner: a foreign marker is overwritten only under Force).
 func TestCheckoutStealTogglesAndPassesForce(t *testing.T) {
 	requireRsync(t)
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	root := t.TempDir()
 	local := filepath.Join(root, "local")
 	remote := filepath.Join(root, "remote")

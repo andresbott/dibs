@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 // ConflictError reports that some paths changed on both sides and the sync
@@ -77,7 +77,7 @@ func userFacingEngineErr(name string, err error) error {
 		}
 		return &guardError{cause: err, msg: fmt.Sprintf(
 			"this sync would delete every previously synced file (%d) on the %s side — a full wipe is never applied; "+
-				"if you emptied the %s copy to start over, run 'netcheckout checkin %s --abandon' and check out again",
+				"if you emptied the %s copy to start over, run 'dibs checkin %s --abandon' and check out again",
 			ww.Deletes, side, other, name)}
 	}
 	return err

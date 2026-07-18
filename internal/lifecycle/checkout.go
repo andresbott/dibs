@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 // Checkout locks a profile: it verifies the remote is reachable and not already
@@ -19,9 +19,9 @@ import (
 // empty baseline and writes the per-profile marker. It copies NO files — pulling
 // the remote down is sync's job. relpath scopes the recorded relpaths (and thus
 // what the first sync reconciles); omitted, the declared subpaths (or the whole
-// root) are recorded (GOALS §8). The lock is always the whole profile. An
+// root) are recorded. The lock is always the whole profile. An
 // existing foreign marker refuses unless Force; a marker already held by THIS
-// machine widens the recorded relpath set under the same lock (GOALS §5).
+// machine widens the recorded relpath set under the same lock.
 func (r Runner) Checkout(ctx context.Context, name string, p config.Profile, id ident.Ident, relpath string, opts Options) (Report, error) {
 	rep := Report{Action: "checkout", DryRun: opts.DryRun}
 	remote, err := p.RemoteEndpoint()
@@ -139,8 +139,7 @@ func verifyClaim(ctx context.Context, acc marker.Accessor, name string, id ident
 }
 
 // checkoutRelpaths resolves the relpath set a checkout records: the explicit
-// relpath when given, else every declared subpath, else the whole root
-// (GOALS §8: "relpath omitted = all declared subpaths, or the whole root").
+// relpath when given, else every declared subpath, else the whole root.
 func checkoutRelpaths(p config.Profile, relpath string) []string {
 	if rel := normalizeRelpath(relpath); rel != "." {
 		return []string{rel}
@@ -156,7 +155,7 @@ func checkoutRelpaths(p config.Profile, relpath string) []string {
 }
 
 // widenCheckout handles a checkout of a profile THIS machine already holds:
-// per GOALS §5/§8 step 3 it grows the recorded relpath set under the same lock.
+// it grows the recorded relpath set under the same lock.
 // A relpath already covered by the held set (or no relpath at all) is refused —
 // there is nothing to widen; sync is the right command. The existing baseline
 // manifest is preserved: only the relpath envelope grows, so the next sync

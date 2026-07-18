@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 )
 
-// runCLI runs the built netcheckout binary with "--config configPath" plus args, under a
+// runCLI runs the built dibs binary with "--config configPath" plus args, under a
 // 30-second timeout. A failure to start the process at all (for example a missing
 // binary) is a harness bug, not a scenario outcome, so it calls t.Fatalf directly; a
 // normal non-zero exit is returned as exitCode for the caller to assert on.
@@ -29,7 +29,7 @@ func runCLI(t *testing.T, configPath string, args ...string) (stdout, stderr str
 
 // runCLIEnv is runCLI plus extraEnv appended to the child process's environment (in
 // addition to the parent's own environment). Scenarios use this to set
-// NETCHECKOUT_STATE so checkout/sync/checkin within a single test share one baseline
+// DIBS_STATE so checkout/sync/checkin within a single test share one baseline
 // state directory instead of each falling back to its own default.
 func runCLIEnv(t *testing.T, configPath string, extraEnv []string, args ...string) (stdout, stderr string, exitCode int) {
 	t.Helper()
@@ -91,9 +91,11 @@ type remoteFixture struct {
 	root  string
 }
 
-// forEachRemoteFlavor runs fn once with a plain-path remote (a mounted share) and once
-// against a loopback rsync daemon exporting the same directory as module "data" — every
-// scenario must behave identically on both transports.
+// forEachRemoteFlavor runs fn once with a plain-path remote (a mounted share), once
+// against a loopback rsync daemon exporting the same directory as module "data", and once
+// over ssh to a loopback sshd serving the same directory — every scenario must behave
+// identically on all three transports. The ssh flavor skips (not fails) where sshd is
+// unavailable.
 func forEachRemoteFlavor(t *testing.T, fn func(t *testing.T, f remoteFixture)) {
 	requireRsync(t)
 	t.Run("path", func(t *testing.T) {
@@ -104,6 +106,16 @@ func forEachRemoteFlavor(t *testing.T, fn func(t *testing.T, f remoteFixture)) {
 		local, remote := newFixture(t)
 		port := startRsyncDaemon(t, remote)
 		fn(t, remoteFixture{local: local, dir: remote, root: fmt.Sprintf("rsync://127.0.0.1:%d/data", port)})
+	})
+	t.Run("ssh", func(t *testing.T) {
+		local, remote := newFixture(t)
+		rsh := startLoopbackSSHD(t)
+		// The profile's remote root stays a bare ssh://host/path (no port, no identity
+		// file), so threewayrsync emits no --rsh flag and rsync falls back to RSYNC_RSH,
+		// which carries the loopback port and key. runCLIEnv builds the child environment
+		// from os.Environ(), so Setenv here reaches the CLI's rsync too.
+		t.Setenv("RSYNC_RSH", rsh)
+		fn(t, remoteFixture{local: local, dir: remote, root: "ssh://127.0.0.1" + remote})
 	})
 }
 
@@ -249,10 +261,10 @@ func writeConfig(t *testing.T, identity, profile, local, remote string) string {
 	return path
 }
 
-// markerFileName is the checkout marker's filename, per GOALS.md §5.
-const markerFileName = ".netcheckout.json"
+// markerFileName is the checkout marker's filename (internal/marker.FileName).
+const markerFileName = ".dibs.json"
 
-// markerPath returns the path GOALS.md §5 specifies for a checkout marker on a
+// markerPath returns the path a checkout marker takes on a
 // whole-root profile.
 func markerPath(remoteRoot string) string {
 	return filepath.Join(remoteRoot, markerFileName)
@@ -380,7 +392,7 @@ func TestWriteConfigProducesLoadableProfile(t *testing.T) {
 
 func TestMarkerPathJoinsRemoteRoot(t *testing.T) {
 	got := markerPath("/tmp/example/remote")
-	want := filepath.Join("/tmp/example/remote", ".netcheckout.json")
+	want := filepath.Join("/tmp/example/remote", ".dibs.json")
 	if got != want {
 		t.Errorf("markerPath = %q, want %q", got, want)
 	}

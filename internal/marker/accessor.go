@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 // Accessor reads, writes, and removes the per-profile marker on a remote root reached
@@ -53,7 +53,7 @@ type remoteAccessor struct {
 }
 
 func (a *remoteAccessor) Read(ctx context.Context) (*Marker, bool, error) {
-	tmp, err := os.MkdirTemp("", "netcheckout-marker-*")
+	tmp, err := os.MkdirTemp("", "dibs-marker-*")
 	if err != nil {
 		return nil, false, err
 	}
@@ -79,7 +79,7 @@ func (a *remoteAccessor) Write(ctx context.Context, m *Marker) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.MkdirTemp("", "netcheckout-marker-*")
+	tmp, err := os.MkdirTemp("", "dibs-marker-*")
 	if err != nil {
 		return err
 	}

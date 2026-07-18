@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/lifecycle"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

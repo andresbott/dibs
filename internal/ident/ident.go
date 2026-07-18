@@ -1,12 +1,12 @@
 // Package ident resolves the two identity facts a checkout marker records:
 // By (the human-readable "who", from config or $USER@$HOSTNAME) and Host (this
-// machine's hostname). Ownership of a marker requires both to match (GOALS.md §3).
+// machine's hostname). Ownership of a marker requires both to match.
 package ident
 
 import (
 	"os"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 )
 
 // Ident is the resolved identity of the current machine/user.
@@ -16,7 +16,7 @@ type Ident struct {
 }
 
 // Resolve derives Ident from cfg. By is cfg.Identity when set, else
-// "$USER@$HOSTNAME" (GOALS.md §4). Host is always os.Hostname().
+// "$USER@$HOSTNAME". Host is always os.Hostname().
 func Resolve(cfg *config.Config) (Ident, error) {
 	host, err := os.Hostname()
 	if err != nil {

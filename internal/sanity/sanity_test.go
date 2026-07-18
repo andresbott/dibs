@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/marker"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/marker"
 )
 
 func TestCheckRootsExistence(t *testing.T) {

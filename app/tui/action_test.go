@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
-	"github.com/andresbott/netcheckout/internal/localstat"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/internal/sanity"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/andresbott/dibs/internal/localstat"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/internal/sanity"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -28,7 +28,7 @@ func requireRsync(t *testing.T) {
 
 func TestCheckoutCmdProducesMarker(t *testing.T) {
 	requireRsync(t)
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	root := t.TempDir()
 	local := filepath.Join(root, "local")
 	remote := filepath.Join(root, "remote")
@@ -81,7 +81,7 @@ func TestSyncOpensConfirmModal(t *testing.T) {
 // instead of stopping (Force). Unticked, that same run would stop on the
 // conflict and only report the delete pending.
 func TestSyncDialogRunPassesOptions(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	name, p, id := tuiHeldFixture(t)
 	// A second synced file to delete locally; keep.txt becomes the conflict.
 	if err := os.WriteFile(filepath.Join(p.RemoteRoot, "gone.txt"), []byte("bye"), 0o644); err != nil {
@@ -184,7 +184,7 @@ func drainStream(t *testing.T, first tea.Msg) ([]lifecycle.Event, actionResultMs
 }
 
 func TestSyncCmdProducesResult(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	name, p, id := tuiHeldFixture(t)
 	// Edit locally after checkout so Sync has something to push.
 	_ = os.WriteFile(filepath.Join(p.LocalRoot, "keep.txt"), []byte("EDITED-LONGER"), 0o644)
@@ -214,7 +214,7 @@ func TestSyncCmdProducesResult(t *testing.T) {
 // resulting actionResultMsg through the model's Update/applyActionResult, and
 // asserts the rendered view names the conflicting file.
 func TestSyncConflictShowsConflictingPathInActivity(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	name, p, id := tuiHeldFixture(t)
 	// Same-file conflict: both sides changed since checkout.
 	_ = os.WriteFile(filepath.Join(p.LocalRoot, "keep.txt"), []byte("LOCAL-version"), 0o644)

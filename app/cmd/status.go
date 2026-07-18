@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/sanity"
-	"github.com/andresbott/netcheckout/internal/status"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/sanity"
+	"github.com/andresbott/dibs/internal/status"
 	"github.com/spf13/cobra"
 )
 

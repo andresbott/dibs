@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/localstat"
-	"github.com/andresbott/netcheckout/internal/sanity"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/localstat"
+	"github.com/andresbott/dibs/internal/sanity"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
-// renderHeader is the top bar: "netcheckout <version>" left, identity right.
+// renderHeader is the top bar: "dibs <version>" left, identity right.
 func renderHeader(width int, version, identity string) string {
-	left := headerAppStyle.Render("netcheckout") + " " + headerIDStyle.Render(version)
+	left := headerAppStyle.Render("dibs") + " " + headerIDStyle.Render(version)
 	right := headerIDStyle.Render(identity)
 	gap := width - 1 - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {

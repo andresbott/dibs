@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 )
 
 func runInit(t *testing.T, args ...string) (string, error) {

@@ -1,7 +1,16 @@
-# netcheckout — What this app is for
+# dibs — What this app is for
 
 This file captures the core user flow the app exists to serve. Every feature should map
-back to a step in this flow. The detailed design spec lives in [GOALS.md](GOALS.md).
+back to a step in this flow. The compacted implementation decisions live in
+[docs/agents/](docs/agents/) — read the file that matches your task:
+
+| Task | Read |
+|---|---|
+| Lifecycle, commands, guards, delete/checkout semantics | [docs/agents/architecture.md](docs/agents/architecture.md) |
+| Anything under `libs/threewayrsync` | [docs/agents/sync-engine.md](docs/agents/sync-engine.md) |
+| Writing/running tests, `make verify`, coverage, lint | [docs/agents/testing.md](docs/agents/testing.md) |
+| Releases, builds, packaging (deb/cask), versioning | [docs/agents/releasing.md](docs/agents/releasing.md) |
+| TUI work (`app/tui`) | [docs/agents/tui.md](docs/agents/tui.md) |
 
 ## The user flow
 

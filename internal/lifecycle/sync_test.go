@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/marker"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/marker"
 )
 
 // heldFixture builds a checked-out profile whose local and remote agree on one
@@ -52,7 +52,7 @@ func TestSyncRefusesForeignMarker(t *testing.T) {
 }
 
 // Force resolves same-file conflicts local-wins; it must NEVER override the
-// lock ownership check (GOALS §9.5, and the sync --force help text).
+// lock ownership check (per the sync --force help text).
 func TestSyncForceDoesNotOverrideForeignLock(t *testing.T) {
 	name, p, id := heldFixture(t)
 	remote := config.ExpandRoot(p.RemoteRoot)
@@ -67,7 +67,7 @@ func TestSyncForceDoesNotOverrideForeignLock(t *testing.T) {
 	}
 }
 
-// Checkin has no --force at all (GOALS §9): a Force option set by any caller
+// Checkin has no --force at all: a Force option set by any caller
 // must not let it past a foreign lock.
 func TestCheckinForceDoesNotOverrideForeignLock(t *testing.T) {
 	name, p, id := heldFixture(t)
@@ -404,7 +404,7 @@ func TestSyncRefusesMissingLocalRootWithBaseline(t *testing.T) {
 }
 
 // A dry-run right after checkout (local root not yet created) must preview the
-// pull plan without creating the local root — GOALS §9.5: dry-run mutates nothing.
+// pull plan without creating the local root — dry-run mutates nothing.
 func TestSyncDryRunFreshCheckoutCreatesNothing(t *testing.T) {
 	requireRsync(t)
 	local, remote := fixture(t)

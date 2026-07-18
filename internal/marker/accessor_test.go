@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 func TestForEndpointSelectsLocal(t *testing.T) {

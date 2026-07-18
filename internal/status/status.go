@@ -12,10 +12,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 // Change is one planned copy: a path and whether it modifies an existing file

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
-	"github.com/andresbott/netcheckout/internal/marker"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/andresbott/dibs/internal/marker"
 )
 
 func TestCheckinCommandReleases(t *testing.T) {

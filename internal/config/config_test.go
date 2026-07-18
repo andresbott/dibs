@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 )
 
 func TestLoadMissingFileReturnsEmpty(t *testing.T) {
@@ -141,7 +141,7 @@ func TestSaveFileMode(t *testing.T) {
 }
 
 func TestDefaultPathEnvOverride(t *testing.T) {
-	t.Setenv("NETCHECKOUT_CONFIG", "/custom/path.yaml")
+	t.Setenv("DIBS_CONFIG", "/custom/path.yaml")
 	got, err := config.DefaultPath()
 	if err != nil {
 		t.Fatal(err)
@@ -152,12 +152,12 @@ func TestDefaultPathEnvOverride(t *testing.T) {
 }
 
 func TestDefaultPathFallback(t *testing.T) {
-	t.Setenv("NETCHECKOUT_CONFIG", "")
+	t.Setenv("DIBS_CONFIG", "")
 	got, err := config.DefaultPath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join("netcheckout", "config.yaml")
+	want := filepath.Join("dibs", "config.yaml")
 	if !strings.HasSuffix(got, want) {
 		t.Fatalf("got %q, want suffix %q", got, want)
 	}

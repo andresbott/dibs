@@ -1,5 +1,5 @@
 // Package marker reads, writes, and removes the per-profile checkout marker: a
-// small JSON lock file at the remote root (GOALS.md §5) recording who holds a
+// small JSON lock file at the remote root recording who holds a
 // profile, from which host, and which relpaths are pulled. It is the source of
 // truth for the cooperative lock.
 package marker
@@ -13,7 +13,7 @@ import (
 )
 
 // FileName is the marker's filename, placed at a profile's remote root.
-const FileName = ".netcheckout.json"
+const FileName = ".dibs.json"
 
 // Exclude is the engine exclude list that keeps the marker out of every sync
 // and diff: the cooperative lock is metadata, not content — it must never be
@@ -21,7 +21,7 @@ const FileName = ".netcheckout.json"
 // so the two can't drift.
 func Exclude() []string { return []string{"/" + FileName} }
 
-// Marker is the on-disk lock record (GOALS.md §5).
+// Marker is the on-disk lock record.
 type Marker struct {
 	CheckedOutBy string    `json:"checked_out_by"`
 	Profile      string    `json:"profile"`
@@ -59,7 +59,7 @@ func Write(remoteRoot string, m *Marker) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(remoteRoot, ".netcheckout-*.tmp")
+	tmp, err := os.CreateTemp(remoteRoot, ".dibs-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func Write(remoteRoot string, m *Marker) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmpName, 0o644); err != nil { //nolint:gosec // G302: the marker is a shared cross-user cooperative lock and must be world-readable (GOALS.md §5/§8), so 0644 is intentional, not overly permissive.
+	if err := os.Chmod(tmpName, 0o644); err != nil { //nolint:gosec // G302: the marker is a shared cross-user cooperative lock and must be world-readable, so 0644 is intentional, not overly permissive.
 		return err
 	}
 	return os.Rename(tmpName, Path(remoteRoot))
@@ -88,7 +88,7 @@ func Remove(remoteRoot string) error {
 }
 
 // OwnedBy reports whether this marker belongs to the given identity on the
-// given host: both must match (GOALS.md §3/§10 — this-machine ownership).
+// given host: both must match (this-machine ownership).
 func (m *Marker) OwnedBy(by, host string) bool {
 	return m.CheckedOutBy == by && m.Host == host
 }

@@ -51,8 +51,8 @@ verify: test license-check lint benchmark coverage e2e ## run the full verificat
 ##@ Running
 #==========================================================================================
 run: ## run the interactive profiles TUI (re-seeds a git-ignored dev config from zarf/sample each run, rewriting sample paths to this checkout)
-	@sed 's|/path/to/netcheckout|$(CURDIR)|g' zarf/sample/config.yaml > netcheckout.dev.yaml
-	@go run main.go --config netcheckout.dev.yaml
+	@sed 's|/path/to/dibs|$(CURDIR)|g' zarf/sample/config.yaml > dibs.dev.yaml
+	@go run main.go --config dibs.dev.yaml
 
 #==========================================================================================
 ##@ Building

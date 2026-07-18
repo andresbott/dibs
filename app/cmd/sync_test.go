@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
-	"github.com/andresbott/netcheckout/internal/marker"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/andresbott/dibs/internal/marker"
 )
 
 func requireRsync(t *testing.T) {
@@ -26,7 +26,7 @@ func requireRsync(t *testing.T) {
 func heldCmdFixture(t *testing.T) (cfgPath, remote string) {
 	t.Helper()
 	requireRsync(t)
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	root := t.TempDir()
 	local := filepath.Join(root, "local")
 	remote = filepath.Join(root, "remote")

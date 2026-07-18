@@ -5,7 +5,7 @@ import (
 	"io"
 	"sort"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -37,7 +37,7 @@ func resolvePath(flagVal string) (string, error) {
 
 func printProfiles(w io.Writer, cfg *config.Config) {
 	if len(cfg.Profiles) == 0 {
-		_, _ = fmt.Fprintln(w, "No profiles configured yet. Run 'netcheckout' to add one.")
+		_, _ = fmt.Fprintln(w, "No profiles configured yet. Run 'dibs' to add one.")
 		return
 	}
 	names := make([]string, 0, len(cfg.Profiles))

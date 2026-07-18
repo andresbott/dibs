@@ -43,7 +43,7 @@ var rsyncVersionRe = regexp.MustCompile(`rsync\s+version\s+v?(\d+)\.(\d+)(\.\d+)
 // rsync older than minRsyncMajor.minRsyncMinor.
 func parseRsyncVersion(out string) (BinInfo, error) {
 	if strings.Contains(strings.ToLower(out), "openrsync") {
-		return BinInfo{OpenRsync: true}, fmt.Errorf("this rsync is Apple openrsync — netcheckout needs GNU rsync >= %d.%d (e.g. brew install rsync), or set the rsync path in client settings", minRsyncMajor, minRsyncMinor)
+		return BinInfo{OpenRsync: true}, fmt.Errorf("this rsync is Apple openrsync — dibs needs GNU rsync >= %d.%d (e.g. brew install rsync), or set the rsync path in client settings", minRsyncMajor, minRsyncMinor)
 	}
 	m := rsyncVersionRe.FindStringSubmatch(out)
 	if m == nil {
@@ -53,7 +53,7 @@ func parseRsyncVersion(out string) (BinInfo, error) {
 	minor, _ := strconv.Atoi(m[2])
 	info := BinInfo{Version: m[1] + "." + m[2] + m[3]}
 	if major < minRsyncMajor || (major == minRsyncMajor && minor < minRsyncMinor) {
-		return info, fmt.Errorf("rsync %s is too old — netcheckout needs GNU rsync >= %d.%d, or set the rsync path in client settings", info.Version, minRsyncMajor, minRsyncMinor)
+		return info, fmt.Errorf("rsync %s is too old — dibs needs GNU rsync >= %d.%d, or set the rsync path in client settings", info.Version, minRsyncMajor, minRsyncMinor)
 	}
 	return info, nil
 }

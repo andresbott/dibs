@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/marker"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/marker"
 )
 
 // TestCheckinReleasesWhenInSync: heldFixture leaves local == remote == base,

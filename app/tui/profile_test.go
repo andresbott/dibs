@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/internal/sanity"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/internal/sanity"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

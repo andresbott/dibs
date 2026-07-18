@@ -42,7 +42,7 @@ type Config struct {
 
 // Load reads the YAML config at path. A missing file yields an empty config.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: config path is user-supplied via --config/$NETCHECKOUT_CONFIG by design; no trust boundary is crossed.
+	data, err := os.ReadFile(path) //nolint:gosec // G304: config path is user-supplied via --config/$DIBS_CONFIG by design; no trust boundary is crossed.
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return &Config{Profiles: map[string]Profile{}}, nil
@@ -73,7 +73,7 @@ func Save(path string, cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".netcheckout-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".dibs-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -89,17 +89,17 @@ func Save(path string, cfg *Config) error {
 	return os.Rename(tmpName, path)
 }
 
-// DefaultPath returns the config file location: $NETCHECKOUT_CONFIG if set,
-// otherwise the OS config directory + netcheckout/config.yaml.
+// DefaultPath returns the config file location: $DIBS_CONFIG if set,
+// otherwise the OS config directory + dibs/config.yaml.
 func DefaultPath() (string, error) {
-	if p := os.Getenv("NETCHECKOUT_CONFIG"); p != "" {
+	if p := os.Getenv("DIBS_CONFIG"); p != "" {
 		return p, nil
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "netcheckout", "config.yaml"), nil
+	return filepath.Join(dir, "dibs", "config.yaml"), nil
 }
 
 // ExpandRoot expands environment variables and a leading ~ in a root path.

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/netcheckout/internal/lifecycle"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -166,7 +166,7 @@ func (*blockingSyncer) Diff(context.Context, threewayrsync.Endpoint, threewayrsy
 // call: syncCmd starts the transfer, canceling the context unblocks it, and the
 // run returns an error rather than hanging.
 func TestSyncCancelStopsRunningRsync(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	name, p, id := tuiHeldFixture(t)
 	// A local edit gives the reconcile a push to apply, so it reaches Syncer.Sync.
 	if err := os.WriteFile(filepath.Join(p.LocalRoot, "keep.txt"), []byte("EDITED-LONGER"), 0o644); err != nil {

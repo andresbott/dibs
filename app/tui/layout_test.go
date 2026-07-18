@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/localstat"
-	"github.com/andresbott/netcheckout/internal/sanity"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/localstat"
+	"github.com/andresbott/dibs/internal/sanity"
 	"github.com/charmbracelet/lipgloss"
 )
 

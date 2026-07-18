@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 )
 
 func TestListCommandPrintsProfiles(t *testing.T) {
@@ -35,7 +35,7 @@ func TestResolvePath(t *testing.T) {
 	if got, _ := resolvePath("/explicit.yaml"); got != "/explicit.yaml" {
 		t.Errorf("flag path: got %q", got)
 	}
-	t.Setenv("NETCHECKOUT_CONFIG", "/env.yaml")
+	t.Setenv("DIBS_CONFIG", "/env.yaml")
 	if got, _ := resolvePath(""); got != "/env.yaml" {
 		t.Errorf("env path: got %q", got)
 	}

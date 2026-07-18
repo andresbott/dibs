@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 	"github.com/spf13/cobra"
 )
 

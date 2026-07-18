@@ -26,13 +26,13 @@ func TestFetchFileBuildsArgs(t *testing.T) {
 	fr := &fileRunner{}
 	s := &Syncer{run: fr.run}
 	e := Endpoint{Path: "/remote/root", SSH: &SSH{User: "u", Host: "h"}}
-	found, err := s.FetchFile(context.Background(), e, ".netcheckout.json", "/tmp/dst")
+	found, err := s.FetchFile(context.Background(), e, ".dibs.json", "/tmp/dst")
 	if err != nil || !found {
 		t.Fatalf("found=%v err=%v", found, err)
 	}
 	args := fr.calls[0]
 	src := args[len(args)-2]
-	if src != "u@h:/remote/root/.netcheckout.json" {
+	if src != "u@h:/remote/root/.dibs.json" {
 		t.Errorf("src = %q", src)
 	}
 	if args[len(args)-1] != "/tmp/dst" {
@@ -72,11 +72,11 @@ func TestPutFileBuildsArgsAndRequiresSource(t *testing.T) {
 	fr := &fileRunner{}
 	s := &Syncer{run: fr.run}
 	e := Endpoint{Daemon: &Daemon{Host: "h", Module: "mod"}}
-	if err := s.PutFile(context.Background(), e, ".netcheckout.json", src); err != nil {
+	if err := s.PutFile(context.Background(), e, ".dibs.json", src); err != nil {
 		t.Fatal(err)
 	}
 	args := fr.calls[0]
-	if dst := args[len(args)-1]; dst != "rsync://h/mod/.netcheckout.json" {
+	if dst := args[len(args)-1]; dst != "rsync://h/mod/.dibs.json" {
 		t.Errorf("dst = %q", dst)
 	}
 	if err := s.PutFile(context.Background(), e, "m.json", filepath.Join(t.TempDir(), "missing")); err == nil {

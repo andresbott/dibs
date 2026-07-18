@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
-	"github.com/andresbott/netcheckout/internal/status"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/andresbott/dibs/internal/status"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -362,7 +362,7 @@ func TestOpenProfileResetsPane(t *testing.T) {
 
 // mountedConfig builds a single-profile "alpha" config whose roots are real,
 // existing temp directories with a checkout marker on the remote, and points
-// NETCHECKOUT_STATE at a temp state dir so status.Compute resolves its baseline
+// DIBS_STATE at a temp state dir so status.Compute resolves its baseline
 // there.
 func mountedConfig(t *testing.T) *config.Config {
 	t.Helper()
@@ -374,10 +374,10 @@ func mountedConfig(t *testing.T) *config.Config {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(remote, ".netcheckout.json"), []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(remote, ".dibs.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	return &config.Config{Profiles: map[string]config.Profile{
 		"alpha": {LocalRoot: local, RemoteRoot: remote},
 	}}

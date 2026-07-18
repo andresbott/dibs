@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/marker"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/marker"
 )
 
 // Result is the lightweight state of a profile.
@@ -74,7 +74,7 @@ func checkMountedRemote(p config.Profile, r *Result) {
 	if info, err := os.Stat(remoteRoot); err == nil && info.IsDir() {
 		r.RemoteRoot = true
 	}
-	// The marker is per-profile at the remote root (GOALS.md §5). Presence is
+	// The marker is per-profile at the remote root. Presence is
 	// stat-based so a corrupt marker still reads as checked out (with a nil
 	// Marker — treated as a foreign lock, the safe direction).
 	if _, err := os.Stat(marker.Path(remoteRoot)); err == nil {

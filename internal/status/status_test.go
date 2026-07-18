@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 func requireRsync(t *testing.T) {
@@ -22,7 +22,7 @@ func requireRsync(t *testing.T) {
 }
 
 // fixture creates local/ and remote/ dirs under a fresh temp root and points
-// NETCHECKOUT_STATE at a temp state dir so baseline.Load/Save resolve there. It
+// DIBS_STATE at a temp state dir so baseline.Load/Save resolve there. It
 // returns the profile name, profile, and the two roots.
 func fixture(t *testing.T) (name string, p config.Profile, local, remote string) {
 	t.Helper()
@@ -35,7 +35,7 @@ func fixture(t *testing.T) (name string, p config.Profile, local, remote string)
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	return "prof", config.Profile{LocalRoot: local, RemoteRoot: remote}, local, remote
 }
 

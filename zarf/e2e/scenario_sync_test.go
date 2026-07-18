@@ -14,7 +14,7 @@ func TestSyncPullsRemoteAdd(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "seed.dat"))
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if _, _, code := runCLIEnv(t, cfg, env, "checkout", "e2e"); code != 0 {
 			t.Fatalf("checkout exit %d", code)
@@ -35,7 +35,7 @@ func TestSyncDisambiguatesDeleteVsAdd(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "from-checkout.dat"))
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if _, _, code := runCLIEnv(t, cfg, env, "checkout", "e2e"); code != 0 {
 			t.Fatalf("checkout exit %d", code)
@@ -82,7 +82,7 @@ func TestSyncMirrorsRemoteDeleteLocally(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "keep.dat")) // keeps the delete below a full wipe
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if _, _, code := runCLIEnv(t, cfg, env, "checkout", "e2e"); code != 0 {
 			t.Fatalf("checkout exit %d", code)
@@ -124,7 +124,7 @@ func TestSyncPropagatesFolderDeleteAndCreate(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "artwork", "cover.png"))
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if _, _, code := runCLIEnv(t, cfg, env, "checkout", "e2e"); code != 0 {
 			t.Fatalf("checkout exit %d", code)
@@ -170,7 +170,7 @@ func TestSyncFullWipeRequiresAbandon(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "seed.dat"))
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if _, _, code := runCLIEnv(t, cfg, env, "checkout", "e2e"); code != 0 {
 			t.Fatalf("checkout exit %d", code)
@@ -212,7 +212,7 @@ func TestStatusPreviewsRemoteDeleteAsLocalDelete(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "seed.dat"))
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if _, _, code := runCLIEnv(t, cfg, env, "checkout", "e2e"); code != 0 {
 			t.Fatalf("checkout exit %d", code)
@@ -250,7 +250,7 @@ func TestSyncConflictStopsWithoutWriting(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "F.dat"))
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if _, _, code := runCLIEnv(t, cfg, env, "checkout", "e2e"); code != 0 {
 			t.Fatalf("checkout exit %d", code)
@@ -281,7 +281,7 @@ func TestSyncFailsFastWithoutLock(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "x.dat"))
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 		remoteBefore := snapshot(t, f.dir)
 
 		// No marker at all.
@@ -306,7 +306,7 @@ func TestSyncDryRunMutatesNothing(t *testing.T) {
 		writeRandomFile(t, filepath.Join(f.dir, "d.dat"))
 		cfg := writeConfig(t, "e2e@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if _, _, code := runCLIEnv(t, cfg, env, "checkout", "e2e"); code != 0 {
 			t.Fatalf("checkout exit %d", code)

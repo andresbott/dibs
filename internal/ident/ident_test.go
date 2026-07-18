@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
+	"github.com/andresbott/dibs/internal/config"
 )
 
 func TestResolveUsesConfigIdentity(t *testing.T) {

@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/internal/sanity"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/internal/sanity"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 // Options are the shared flags every mutating action understands.
@@ -198,7 +198,7 @@ func (r Runner) preflightProfile(ctx context.Context, name string, p config.Prof
 		return profilePlan{}, fmt.Errorf("profile %q is not checked out (no marker)", name)
 	}
 	// Ownership is absolute here: sync's --force only resolves same-file
-	// conflicts local-wins (GOALS §9.5) and checkin has no force at all (§9).
+	// conflicts local-wins and checkin has no force at all.
 	// Overriding a foreign lock is checkout's job, never sync/checkin's.
 	if !m.OwnedBy(id.By, id.Host) {
 		return profilePlan{}, fmt.Errorf("profile %q is checked out by %s on %s (not this machine)", name, m.CheckedOutBy, m.Host)
@@ -244,7 +244,7 @@ func (r Runner) preflightProfile(ctx context.Context, name string, p config.Prof
 		// --clean would then delete). Widening the envelope is checkout's job.
 		if !relpathCovered(rel, st.Relpaths) {
 			return profilePlan{}, fmt.Errorf(
-				"relpath %q is outside the checked-out scope of %q (%s) — run 'netcheckout checkout %s %s' to widen the checkout first",
+				"relpath %q is outside the checked-out scope of %q (%s) — run 'dibs checkout %s %s' to widen the checkout first",
 				rel, name, strings.Join(st.Relpaths, ", "), name, rel)
 		}
 		relpaths = []string{rel}
@@ -278,7 +278,7 @@ func refuseOutsideEnvelope(p config.Profile, name, action string, relpaths []str
 	if len(unlisted) > 0 {
 		return fmt.Errorf(
 			"refusing to %s %q: local content is outside the checked-out scope (%s) and would not be synced — "+
-				"move it aside, widen the checkout with 'netcheckout checkout %s <relpath>', sync, then merge it back (or remove it):\n  %s",
+				"move it aside, widen the checkout with 'dibs checkout %s <relpath>', sync, then merge it back (or remove it):\n  %s",
 			action, name, strings.Join(relpaths, ", "), name, strings.Join(unlisted, "\n  "))
 	}
 	return nil

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	tw "github.com/andresbott/netcheckout/libs/threewayrsync"
+	tw "github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 func requireRsync(t *testing.T) {
@@ -564,6 +564,148 @@ func TestIntegrationResumeIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestIntegrationCancelMidSyncThenResume covers the cancel/resume contract end to end:
+// a context canceled mid-apply — from inside the first progress event, while rsync is
+// still streaming itemize output — surfaces as ctx.Err(), commits no base, and destroys
+// nothing on the source side; a re-run with a live context converges from whatever
+// partially landed and commits the base exactly once.
+func TestIntegrationCancelMidSyncThenResume(t *testing.T) {
+	requireRsync(t)
+	s, local, remote := newSyncer(t)
+
+	files := []string{"a.txt", "b.txt", "sub/c.txt", "sub/d.txt", "e.txt"}
+	for i, f := range files {
+		writeFile(t, filepath.Join(local.Path, f), fmt.Sprintf("content-%d", i))
+	}
+
+	// Cancel from the first event: the push rsync is killed mid-transfer, or — if it
+	// already finished — the post-apply re-listing fails on the dead context. Both roads
+	// must end in ctx.Err() with the base uncommitted.
+	ctx, cancel := context.WithCancel(context.Background())
+	res, err := s.Sync(ctx, local, remote, tw.Options{
+		OnEvent: func(tw.Event) { cancel() },
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled sync err = %v, want context.Canceled", err)
+	}
+	if res.BaseSaved {
+		t.Error("canceled sync must not report a saved base")
+	}
+	if _, ok, err := s.Store.LoadBase(); err != nil || ok {
+		t.Fatalf("canceled sync must not commit a base: ok=%v err=%v", ok, err)
+	}
+	// The source side survives untouched: a cancel may leave the destination partial,
+	// never damage the origin.
+	for _, f := range files {
+		if _, err := os.Stat(filepath.Join(local.Path, f)); err != nil {
+			t.Errorf("local %s must survive the cancel: %v", f, err)
+		}
+	}
+
+	// Resume: a fresh run re-derives the plan from live state (files that landed before
+	// the kill have converged and drop out) and completes.
+	res, err = s.Sync(context.Background(), local, remote, tw.Options{})
+	if err != nil {
+		t.Fatalf("resume sync: %v", err)
+	}
+	if !res.BaseSaved {
+		t.Error("resume must commit the base")
+	}
+	for i, f := range files {
+		got, err := os.ReadFile(filepath.Join(remote.Path, f))
+		if err != nil || string(got) != fmt.Sprintf("content-%d", i) {
+			t.Errorf("remote %s after resume = %q err %v", f, string(got), err)
+		}
+	}
+	plan, err := s.Diff(context.Background(), local, remote, tw.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.InSync {
+		t.Fatalf("resumed sync must converge, got %+v", plan)
+	}
+}
+
+// TestIntegrationEventsMatchApplied verifies the live progress stream against a real
+// rsync run: every applied operation — push, pull, and both delete directions — is
+// announced by exactly one correctly-typed event, and nothing else is announced.
+// Transfer events are parsed live from rsync's itemize stream (not echoed from the
+// plan), so this pins the --out-format contract on a real binary, including the
+// dir-created event for a pushed directory.
+func TestIntegrationEventsMatchApplied(t *testing.T) {
+	requireRsync(t)
+	s, local, remote := newSyncer(t)
+	ctx := context.Background()
+
+	var events []tw.Event
+	opts := func(allowDeletes bool) tw.Options {
+		events = nil
+		return tw.Options{
+			AllowDeletes: allowDeletes,
+			OnEvent:      func(e tw.Event) { events = append(events, e) },
+		}
+	}
+	eventPaths := func(op string) []string {
+		var out []string
+		for _, e := range events {
+			if e.Op == op {
+				out = append(out, e.Path)
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+	assertOp := func(op string, applied []string) {
+		t.Helper()
+		want := append([]string(nil), applied...)
+		slices.Sort(want)
+		if got := eventPaths(op); !slices.Equal(got, want) {
+			t.Errorf("%s events = %v, want %v", op, got, want)
+		}
+	}
+
+	// Initial push: two files plus the sub/ dir rsync creates for one of them.
+	writeFile(t, filepath.Join(local.Path, "a.txt"), "A")
+	writeFile(t, filepath.Join(local.Path, "keep.txt"), "K")
+	writeFile(t, filepath.Join(local.Path, "sub", "b.txt"), "BB")
+	res, err := s.Sync(ctx, local, remote, opts(false))
+	if err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	assertOp("push", res.Applied.Push)
+	if !slices.Contains(eventPaths("push"), "sub") {
+		t.Errorf("pushing into a new dir must announce the dir: %v", eventPaths("push"))
+	}
+	for _, op := range []string{"pull", "delete-local", "delete-remote"} {
+		assertOp(op, nil)
+	}
+
+	// One sync exercising all four ops: a remote edit and a remote add (pull), a local
+	// add (push), a local file removal (delete-remote), a remote removal (delete-local).
+	writeFile(t, filepath.Join(remote.Path, "a.txt"), "A-EDITED")
+	writeFile(t, filepath.Join(remote.Path, "n.txt"), "N")
+	writeFile(t, filepath.Join(local.Path, "m.txt"), "M")
+	if err := os.Remove(filepath.Join(local.Path, "sub", "b.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(remote.Path, "keep.txt")); err != nil {
+		t.Fatal(err)
+	}
+	res, err = s.Sync(ctx, local, remote, opts(true))
+	if err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	assertOp("pull", res.Applied.Pull)
+	assertOp("push", res.Applied.Push)
+	assertOp("delete-remote", res.Applied.RemoteDeletes)
+	assertOp("delete-local", res.Applied.LocalDeletes)
+	applied := len(res.Applied.Pull) + len(res.Applied.Push) +
+		len(res.Applied.LocalDeletes) + len(res.Applied.RemoteDeletes)
+	if len(events) != applied {
+		t.Errorf("event count = %d, want %d (one per applied op): %+v", len(events), applied, events)
+	}
+}
+
 func TestIntegrationFileHelpers(t *testing.T) {
 	requireRsync(t)
 	s, _, remote := newSyncer(t)
@@ -571,7 +713,7 @@ func TestIntegrationFileHelpers(t *testing.T) {
 
 	// Fetch of a missing file reports not-found without error.
 	dst := filepath.Join(t.TempDir(), "fetched.json")
-	found, err := s.FetchFile(ctx, remote, ".netcheckout.json", dst)
+	found, err := s.FetchFile(ctx, remote, ".dibs.json", dst)
 	if err != nil {
 		t.Fatalf("fetch missing: %v", err)
 	}
@@ -582,10 +724,10 @@ func TestIntegrationFileHelpers(t *testing.T) {
 	// Put, fetch back, delete, fetch again.
 	src := filepath.Join(t.TempDir(), "marker.json")
 	writeFile(t, src, `{"who":"me"}`)
-	if err := s.PutFile(ctx, remote, ".netcheckout.json", src); err != nil {
+	if err := s.PutFile(ctx, remote, ".dibs.json", src); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	found, err = s.FetchFile(ctx, remote, ".netcheckout.json", dst)
+	found, err = s.FetchFile(ctx, remote, ".dibs.json", dst)
 	if err != nil || !found {
 		t.Fatalf("fetch after put: found=%v err=%v", found, err)
 	}
@@ -593,10 +735,10 @@ func TestIntegrationFileHelpers(t *testing.T) {
 	if err != nil || string(got) != `{"who":"me"}` {
 		t.Fatalf("fetched content = %q err=%v", string(got), err)
 	}
-	if err := s.DeleteFile(ctx, remote, ".netcheckout.json"); err != nil {
+	if err := s.DeleteFile(ctx, remote, ".dibs.json"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	found, err = s.FetchFile(ctx, remote, ".netcheckout.json", dst)
+	found, err = s.FetchFile(ctx, remote, ".dibs.json", dst)
 	if err != nil || found {
 		t.Fatalf("fetch after delete: found=%v err=%v", found, err)
 	}

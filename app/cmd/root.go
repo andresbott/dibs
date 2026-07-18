@@ -6,10 +6,10 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/andresbott/netcheckout/app/metainfo"
-	"github.com/andresbott/netcheckout/app/tui"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/app/metainfo"
+	"github.com/andresbott/dibs/app/tui"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -26,8 +26,8 @@ func newRootCommand() *cobra.Command {
 	var cfgPath string
 
 	cmd := &cobra.Command{
-		Use:           "netcheckout",
-		Short:         "netcheckout: check out and check in work directories over network drives",
+		Use:           "dibs",
+		Short:         "dibs: check out and check in work directories over network drives",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

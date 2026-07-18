@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 func writeStatusTestConfig(t *testing.T, profiles map[string]config.Profile) string {
@@ -22,7 +22,7 @@ func writeStatusTestConfig(t *testing.T, profiles map[string]config.Profile) str
 	return p
 }
 
-// statusFixture creates local/ and remote/ roots and points NETCHECKOUT_STATE at
+// statusFixture creates local/ and remote/ roots and points DIBS_STATE at
 // a temp state dir so status.Compute resolves the baseline there.
 func statusFixture(t *testing.T) (local, remote string) {
 	t.Helper()
@@ -35,7 +35,7 @@ func statusFixture(t *testing.T) (local, remote string) {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	return local, remote
 }
 
@@ -190,7 +190,7 @@ func TestStatusRegisteredOnRoot(t *testing.T) {
 
 func writeCheckoutMarker(t *testing.T, remoteRoot string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(remoteRoot, ".netcheckout.json"), []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(remoteRoot, ".dibs.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

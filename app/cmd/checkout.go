@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/andresbott/netcheckout/app/metainfo"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
+	"github.com/andresbott/dibs/app/metainfo"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/lifecycle"
 	"github.com/spf13/cobra"
 )
 
@@ -71,5 +71,5 @@ func printCheckoutReport(w io.Writer, name string, rep lifecycle.Report) {
 		_, _ = fmt.Fprintf(w, "%s: dry-run — would write a marker (lock only)\n", name)
 		return
 	}
-	_, _ = fmt.Fprintf(w, "%s: checked out (locked; run 'netcheckout sync %s' to pull files)\n", name, name)
+	_, _ = fmt.Fprintf(w, "%s: checked out (locked; run 'dibs sync %s' to pull files)\n", name, name)
 }

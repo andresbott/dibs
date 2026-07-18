@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
 )
 
 // validateCleanTarget guards checkin --clean's os.RemoveAll: it refuses the
@@ -74,7 +74,7 @@ func (r Runner) Checkin(ctx context.Context, name string, p config.Profile, id i
 		return rep, nil
 	}
 	if !plan.InSync {
-		return rep, fmt.Errorf("profile %q has unsynced changes — run 'netcheckout sync %s' before checking in", name, name)
+		return rep, fmt.Errorf("profile %q has unsynced changes — run 'dibs sync %s' before checking in", name, name)
 	}
 
 	if err := pf.acc.Remove(ctx); err != nil {

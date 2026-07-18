@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/marker"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/marker"
 )
 
 func TestSyncRefusesUnlistedLocalContent(t *testing.T) {
@@ -61,7 +61,7 @@ func TestSyncForceDoesNotBypassGuard(t *testing.T) {
 // (so the config-level guard passes) but outside the checkout envelope, so no
 // scoped sync would ever push it and checkin would report in-sync over it.
 func TestSyncRefusesLocalContentOutsideCheckoutEnvelope(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	local, remote := t.TempDir(), t.TempDir()
 	for _, dir := range []string{filepath.Join(remote, "a"), filepath.Join(remote, "b")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

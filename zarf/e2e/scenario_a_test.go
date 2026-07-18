@@ -15,7 +15,7 @@ func TestScenarioA(t *testing.T) {
 		remoteSnapshot := snapshot(t, f.dir)
 		configPath := writeConfig(t, "e2e-test@localhost", "e2e", f.local, f.root)
 		state := t.TempDir()
-		env := []string{"NETCHECKOUT_STATE=" + state}
+		env := []string{"DIBS_STATE=" + state}
 
 		if !t.Run("status reports no checkout before checkout", func(t *testing.T) {
 			if got := snapshot(t, f.local); len(got) != 0 {
@@ -33,12 +33,14 @@ func TestScenarioA(t *testing.T) {
 		}
 
 		if !t.Run("checkin refuses a profile that is not checked out", func(t *testing.T) {
-			stdout, _, exitCode := runCLIEnv(t, configPath, env, "checkin", "e2e")
+			_, stderr, exitCode := runCLIEnv(t, configPath, env, "checkin", "e2e")
 			if exitCode == 0 {
 				t.Fatal("checkin of a not-checked-out profile should fail, got exit 0")
 			}
-			if !strings.Contains(stdout, "not checked out") {
-				t.Fatalf("checkin output = %q, want it to report the profile is not checked out", stdout)
+			// A no-marker checkin is a plain error: it travels via the returned err,
+			// which Execute prints to stderr (stdout only carries sync-pending reports).
+			if !strings.Contains(stderr, "not checked out") {
+				t.Fatalf("checkin stderr = %q, want it to report the profile is not checked out", stderr)
 			}
 		}) {
 			t.FailNow()
@@ -62,12 +64,12 @@ func TestScenarioA(t *testing.T) {
 		}
 
 		if !t.Run("checkout refuses a second checkout while held", func(t *testing.T) {
-			stdout, _, exitCode := runCLIEnv(t, configPath, env, "checkout", "e2e")
+			_, stderr, exitCode := runCLIEnv(t, configPath, env, "checkout", "e2e")
 			if exitCode == 0 {
 				t.Fatal("a second checkout of a held profile should fail, got exit 0")
 			}
-			if !strings.Contains(stdout, "already checked out") {
-				t.Fatalf("checkout output = %q, want it to report the profile is already checked out", stdout)
+			if !strings.Contains(stderr, "already checked out") {
+				t.Fatalf("checkout stderr = %q, want it to report the profile is already checked out", stderr)
 			}
 		}) {
 			t.FailNow()

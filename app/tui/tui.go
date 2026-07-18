@@ -7,14 +7,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/andresbott/netcheckout/app/metainfo"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
-	"github.com/andresbott/netcheckout/internal/localstat"
-	"github.com/andresbott/netcheckout/internal/sanity"
-	"github.com/andresbott/netcheckout/internal/status"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/app/metainfo"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/andresbott/dibs/internal/localstat"
+	"github.com/andresbott/dibs/internal/sanity"
+	"github.com/andresbott/dibs/internal/status"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -147,7 +147,7 @@ func (m model) withStartupSettings() model {
 }
 
 // identityString is the header's right-hand text: the configured identity, or
-// "$USER@$HOSTNAME" as GOALS.md specifies for the default.
+// "$USER@$HOSTNAME" as the default.
 func identityString(cfg *config.Config) string {
 	id, err := ident.Resolve(cfg)
 	if err != nil {

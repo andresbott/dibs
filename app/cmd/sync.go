@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/andresbott/netcheckout/app/metainfo"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/lifecycle"
+	"github.com/andresbott/dibs/app/metainfo"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/lifecycle"
 	"github.com/spf13/cobra"
 )
 

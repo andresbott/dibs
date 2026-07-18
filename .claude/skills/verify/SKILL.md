@@ -1,13 +1,13 @@
 ---
 name: verify
-description: Use when the user runs /verify or asks to run make verify. Runs the full verification suite (tests, license, lint, benchmarks, coverage) and fixes every issue found.
+description: Use when the user runs /verify or asks to run make verify. Runs the full verification suite (tests, license, lint, benchmarks, coverage, e2e) and fixes every issue found.
 ---
 
 # verify
 
 Run `make verify` and fix all issues until it passes clean.
 
-`make verify` runs in order: `test` → `license-check` → `lint` → `benchmark` → `coverage`
+`make verify` runs in order: `test` → `license-check` → `lint` → `benchmark` → `coverage` → `e2e`
 
 ## How to run
 
@@ -49,10 +49,10 @@ Config: `.golangci.yaml` — standard linters + `nolintlint`, `gocyclo` (≥20),
 
 ## Coverage
 
-Threshold: **70%** for `./internal/...`.
+Threshold: **70%** per package across `./app/...`, `./internal/...`, and `./libs/...`
+(`app/metainfo` is excluded — linker-stamped vars only).
 
 If coverage drops below 70%: write the missing tests. Do not lower the threshold.
-(No-op until `internal/` contains Go packages.)
 
 ## Step-by-step
 

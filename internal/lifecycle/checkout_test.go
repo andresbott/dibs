@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/netcheckout/internal/baseline"
-	"github.com/andresbott/netcheckout/internal/config"
-	"github.com/andresbott/netcheckout/internal/ident"
-	"github.com/andresbott/netcheckout/internal/marker"
-	"github.com/andresbott/netcheckout/libs/threewayrsync"
+	"github.com/andresbott/dibs/internal/baseline"
+	"github.com/andresbott/dibs/internal/config"
+	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/marker"
+	"github.com/andresbott/dibs/libs/threewayrsync"
 )
 
 // requireRsync skips tests that drive the real engine when rsync is not on PATH
-// (GOALS.md assumes it is installed, so this is a CI safety valve, not a mock).
+// (the design assumes it is installed, so this is a CI safety valve, not a mock).
 func requireRsync(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("rsync"); err != nil {
@@ -27,7 +27,7 @@ func requireRsync(t *testing.T) {
 
 func fixture(t *testing.T) (local, remote string) {
 	t.Helper()
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	root := t.TempDir()
 	local = filepath.Join(root, "local")
 	remote = filepath.Join(root, "remote")
@@ -186,7 +186,7 @@ func TestCheckoutDryRunWritesNothing(t *testing.T) {
 }
 
 func TestCheckoutUnmountedRemoteRefuses(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	p := config.Profile{LocalRoot: t.TempDir(), RemoteRoot: filepath.Join(t.TempDir(), "missing")}
 	if _, err := (Runner{}).Checkout(context.Background(), "work", p, testIdent(), "", Options{}); err == nil {
 		t.Fatal("must refuse an unmounted remote root")
@@ -212,7 +212,7 @@ func TestCheckoutRelpathScopesState(t *testing.T) {
 	}
 }
 
-// GOALS §8: relpath omitted = all declared subpaths (not the whole root). The
+// Relpath omitted = all declared subpaths (not the whole root). The
 // recorded relpaths drive the first sync's scope, so seeding them from the
 // profile keeps sync from pulling out-of-scope trees the UnlistedLocal guard
 // would then refuse to push back.
@@ -266,7 +266,7 @@ func TestCheckoutRefusesRelpathOutsideSubpaths(t *testing.T) {
 	}
 }
 
-// GOALS §5/§8 step 3: a this-machine re-checkout with a new relpath widens the
+// A this-machine re-checkout with a new relpath widens the
 // pulled set under the same lock — it must not refuse, must keep the existing
 // baseline manifest, and must record the union of relpaths.
 func TestCheckoutWidensHeldRelpaths(t *testing.T) {
@@ -359,7 +359,7 @@ func (a *racingAccessor) Remove(context.Context) error { return nil }
 // the verify read-back must detect the lost race, roll the baseline back, and
 // report who holds the lock — instead of both machines believing they own it.
 func TestCheckoutDetectsLostClaimRace(t *testing.T) {
-	t.Setenv("NETCHECKOUT_STATE", t.TempDir())
+	t.Setenv("DIBS_STATE", t.TempDir())
 	local, remote := fixture(t)
 	foreign := &marker.Marker{CheckedOutBy: "other@laptop", Host: "laptop", Profile: "work"}
 	r := Runner{

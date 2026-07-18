@@ -1,4 +1,4 @@
-module github.com/andresbott/netcheckout
+module github.com/andresbott/dibs
 
 go 1.26
 

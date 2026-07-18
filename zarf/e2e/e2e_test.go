@@ -11,29 +11,29 @@ import (
 	"testing"
 )
 
-// binPath is set by TestMain to the freshly built netcheckout binary.
+// binPath is set by TestMain to the freshly built dibs binary.
 var binPath string
 
 func TestMain(m *testing.M) {
 	os.Exit(runMain(m))
 }
 
-// runMain builds netcheckout to a temp dir, runs the suite, and cleans up. A build
+// runMain builds dibs to a temp dir, runs the suite, and cleans up. A build
 // failure prints the compiler output and skips m.Run entirely (exit 1).
 func runMain(m *testing.M) int {
-	tmpDir, err := os.MkdirTemp("", "netcheckout-e2e-bin-")
+	tmpDir, err := os.MkdirTemp("", "dibs-e2e-bin-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "e2e: create temp dir:", err)
 		return 1
 	}
 	defer os.RemoveAll(tmpDir)
 
-	binPath = filepath.Join(tmpDir, "netcheckout")
-	build := exec.Command("go", "build", "-o", binPath, "github.com/andresbott/netcheckout")
+	binPath = filepath.Join(tmpDir, "dibs")
+	build := exec.Command("go", "build", "-o", binPath, "github.com/andresbott/dibs")
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "e2e: build netcheckout:", err)
+		fmt.Fprintln(os.Stderr, "e2e: build dibs:", err)
 		return 1
 	}
 

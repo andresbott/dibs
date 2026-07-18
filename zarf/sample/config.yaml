@@ -1,0 +1,39 @@
+# Sample netcheckout configuration with three profiles.
+#
+# A profile is a named pair of roots: a fast LOCAL working copy and the
+# canonical REMOTE root on a mounted network share. Roots must be ABSOLUTE
+# paths (a leading ~ and $ENV vars are expanded when the tool uses them).
+#
+# The paths below point at the example folders shipped next to this file
+# (zarf/sample/<profile>/{local,remote}). Replace the "/path/to/netcheckout"
+# prefix with the absolute path to your checkout, then try:
+#
+#   netcheckout --config zarf/sample/config.yaml list
+#
+# The three profiles show the range of the subpaths option: "photos" acts on
+# its whole root, "work" scopes to a couple of folders, and "music" to several.
+#
+# "identity" is stamped into checkout markers so others know who holds a folder.
+identity: alice@thinkpad
+
+profiles:
+  photos:
+    local_root: /path/to/netcheckout/zarf/sample/photos/local
+    remote_root: /path/to/netcheckout/zarf/sample/photos/remote
+  work:
+    local_root: /path/to/netcheckout/zarf/sample/work/local
+    remote_root: /path/to/netcheckout/zarf/sample/work/remote
+    # subpaths (optional) scope the profile to only these paths under BOTH roots.
+    # Relative, may be nested; omit entirely to act on the whole root (as "photos" does).
+    subpaths:
+      - reports
+      - notes/2024
+  music:
+    local_root: /path/to/netcheckout/zarf/sample/music/local
+    remote_root: /path/to/netcheckout/zarf/sample/music/remote
+    # A longer, nested list — shows up as "Subpaths (4)" in the TUI details view.
+    subpaths:
+      - albums/live
+      - albums/studio
+      - stems
+      - artwork

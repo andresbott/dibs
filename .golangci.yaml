@@ -1,0 +1,36 @@
+version: "2"
+linters:
+  default: standard # errcheck,govet,ineffassign,staticcheck,unused
+  enable:
+    - nolintlint
+    - gocyclo
+    - nestif
+    - gosec
+    - dupl
+
+  # exclude noisy linters on test files: structural checks plus gosec, whose
+  # G304 fires on tests that read temp files they just wrote under t.TempDir().
+  exclusions:
+    rules:
+      - path: '(.+)_test\.go'
+        linters:
+          - nestif
+          - dupl
+          - gosec
+
+  settings:
+    nolintlint:
+      # Enable to require an explanation of nonzero length after each nolint directive.
+      require-explanation: true
+      # Enable to require nolint directives to mention the specific linter being suppressed.
+      require-specific: true
+    gocyclo:
+      min-complexity: 20  # Default: 30 (but we recommend 10-20)
+    nestif:
+      min-complexity: 5   # Default: 5
+
+output:
+  sort-order:
+    - file
+    - severity
+    - linter

@@ -1,0 +1,41 @@
+# ---> Go
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+.directory
+
+# Test binary, built with `go test -c`
+*.test
+*.cover.out
+coverage.out
+*.report
+*.html
+
+# IDE shenanigans
+*.iml
+.idea/
+
+# build output
+dist/
+# local build of the binary
+/netcheckout
+# local dev config seeded by `make run`
+/netcheckout.dev.yaml
+
+# local env (secrets, API keys)
+.env
+
+# editor backup files
+*~
+
+# markers left behind by running the tool against the sample dirs
+zarf/sample/**/.netcheckout.json
+
+# AI stuff
+.playwright-mcp/
+docs/superpowers
+.superpowers
+.tokensave

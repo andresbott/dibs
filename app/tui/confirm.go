@@ -418,6 +418,7 @@ func (m model) cancelAction() (tea.Model, tea.Cmd) {
 	m.profile.canceled = true
 	m.mode = modeMain
 	m.sub = subActions
+	m.pane = paneActions // the run is over; hand focus back to the action list
 	return m, nil
 }
 
@@ -446,6 +447,7 @@ func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
 	m.mode = modeMain
 	m.sub = subActions
+	m.pane = paneActivity // lock focus to the Activity panel while it runs
 	m.profile.acting = true
 	m.profile.actionErr = nil
 	m.profile.actionReport = nil
@@ -472,6 +474,7 @@ func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
 	m.mode = modeMain
 	m.sub = subActions
+	m.pane = paneActivity // lock focus to the Activity panel while it runs
 	m.profile.acting = true
 	m.profile.actionErr = nil
 	m.profile.actionReport = nil
@@ -494,6 +497,7 @@ func (m model) syncConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
 	m.mode = modeMain
 	m.sub = subActions
+	m.pane = paneActivity // lock focus to the Activity panel while it runs
 	m.profile.acting = true
 	m.profile.actionErr = nil
 	m.profile.actionReport = nil

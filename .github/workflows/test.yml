@@ -1,0 +1,29 @@
+name: test
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: run tests
+        run: make test
+
+      - name: ensure test coverage
+        run: make coverage
+
+      - name: install sshd for the loopback-ssh e2e flavor
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends openssh-server
+
+      - name: run e2e tests
+        run: make e2e

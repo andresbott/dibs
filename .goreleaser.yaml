@@ -1,0 +1,102 @@
+version: 2
+before:
+  hooks:
+    - go mod tidy
+builds:
+  # =====================================================================================
+  # single pure-Go build for linux + darwin (rsync is shelled out; no CGO)
+  # =====================================================================================
+  - id: dibs
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/andresbott/dibs/app/metainfo.Version={{.Version}}
+      - -X github.com/andresbott/dibs/app/metainfo.BuildTime={{.Date}}
+      - -X github.com/andresbott/dibs/app/metainfo.ShaVer={{.Commit}}
+    binary: dibs
+
+archives:
+  - formats: [tar.gz]
+    # this name template makes the OS and Arch compatible with the results of uname.
+    name_template: >-
+      dibs_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+
+nfpms:
+  # build a .deb for linux (rsync is a runtime dependency). only linux builds
+  # are packaged; the darwin binaries are skipped automatically.
+  - id: dibs
+    package_name: dibs
+    ids:
+      - dibs
+    formats:
+      - deb
+    maintainer: "Andres Bott <contact@andresbott.com>"
+    homepage: "https://github.com/andresbott/dibs"
+    description: "CLI to check out/in work directories over network drives via rsync"
+    license: "AGPL-3.0"
+    section: utils
+    priority: optional
+    dependencies:
+      - rsync
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/dibs/copyright
+    deb:
+      # the go binary is statically linked (CGO_ENABLED=0); silence lintian.
+      lintian_overrides:
+        - statically-linked-binary
+
+homebrew_casks:
+  # publish a macOS cask into this same repo (Casks/dibs.rb).
+  # linux is distributed as a .deb, so a macOS-only cask is fine — and it's the
+  # non-deprecated successor to `brews`. the default GITHUB_TOKEN can push here.
+  - name: dibs
+    binaries:
+      - dibs
+    repository:
+      owner: andresbott
+      name: dibs
+    directory: Casks
+    commit_author:
+      name: Andres Bott
+      email: contact@andresbott.com
+    homepage: "https://github.com/andresbott/dibs"
+    description: "CLI to check out/in work directories over network drives via rsync"
+    dependencies:
+      - formula: rsync
+    # the darwin binary isn't code-signed/notarized, so strip the Gatekeeper
+    # quarantine attribute on install to avoid a "dibs is damaged" error.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/dibs"]
+          end
+
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

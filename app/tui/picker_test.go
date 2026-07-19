@@ -117,8 +117,8 @@ func TestPickerSelectFillsField(t *testing.T) {
 	if got := m.form.inputs[1].Value(); got != target {
 		t.Fatalf("selected folder should fill the field: got %q, want %q", got, target)
 	}
-	if m.form.focus != inputSlot(1) {
-		t.Fatalf("focus should return to the Local input (slot %d), got %d", inputSlot(1), m.form.focus)
+	if m.form.focus != m.form.inputSlot(1) {
+		t.Fatalf("focus should return to the Local input (slot %d), got %d", m.form.inputSlot(1), m.form.focus)
 	}
 }
 

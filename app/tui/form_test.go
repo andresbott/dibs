@@ -49,8 +49,9 @@ func TestFormHasBrowseButtons(t *testing.T) {
 
 func TestFormDownUpColumn0IncludesSave(t *testing.T) {
 	m := openAddForm(t) // Name input (slot 0)
-	// Down descends the left column: Name → Local input → Remote input → Save → wrap.
-	for i, want := range []int{1, 3, 5, 0} { // Local input, Remote input, Save, wrap to Name
+	// Down descends the left column: Name → Local input → Remote input →
+	// Add subpath → Save → wrap.
+	for i, want := range []int{1, 3, 5, 6, 0} { // Local, Remote, Add, Save, wrap to Name
 		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 		if m.form.focus != want {
 			t.Fatalf("down #%d: focus = %d, want %d", i+1, m.form.focus, want)
@@ -58,22 +59,28 @@ func TestFormDownUpColumn0IncludesSave(t *testing.T) {
 	}
 	// Up from Name wraps to the bottom of the left column (Save).
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})
-	if m.form.focus != 5 {
-		t.Fatalf("up from Name: focus = %d, want 5 (Save)", m.form.focus)
+	if m.form.focus != 6 {
+		t.Fatalf("up from Name: focus = %d, want 6 (Save)", m.form.focus)
 	}
 }
 
-func TestFormDownFromRemoteBrowseToCancel(t *testing.T) {
+func TestFormDownFromRemoteBrowseFallsToColumn0(t *testing.T) {
 	m := openAddForm(t)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Local input (empty ⇒ cursor at end)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Local Browse
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Remote Browse
-	if formSlots[m.form.focus].kind != slotButton || m.form.focusField() != 2 {
+	if m.form.focusKind() != slotButton || m.form.focusField() != 2 {
 		t.Fatalf("setup: want Remote Browse, got slot %d", m.form.focus)
 	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Cancel
-	if formSlots[m.form.focus].kind != slotCancel {
-		t.Fatalf("down from Remote Browse should focus Cancel, got slot %d", m.form.focus)
+	// Down from Remote Browse: the Add row below has no right cell, so focus
+	// falls to column 0 (Add subpath); one more Down lands on Cancel (same column).
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.form.focusKind() != slotAdd {
+		t.Fatalf("down from Remote Browse should fall to Add subpath, got slot %d", m.form.focus)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.form.focusKind() != slotSave {
+		t.Fatalf("down from Add subpath should focus Save, got slot %d", m.form.focus)
 	}
 }
 
@@ -81,7 +88,7 @@ func TestFormUpFromFirstBrowseGoesToName(t *testing.T) {
 	m := openAddForm(t)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Local input (empty ⇒ cursor at end)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Local Browse (the first Browse)
-	if formSlots[m.form.focus].kind != slotButton || m.form.focusField() != 1 {
+	if m.form.focusKind() != slotButton || m.form.focusField() != 1 {
 		t.Fatalf("setup: want Local Browse, got slot %d", m.form.focus)
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp}) // → Name (the row above has no right cell)
@@ -98,7 +105,7 @@ func TestFormRightLeftReachButton(t *testing.T) {
 		t.Fatalf("right at end of Local input should focus its Browse button, got focus %d", m.form.focus)
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft}) // back to the input
-	if m.form.currentIsButton() || m.form.focus != inputSlot(1) {
+	if m.form.currentIsButton() || m.form.focus != m.form.inputSlot(1) {
 		t.Fatalf("left from the button should return to the Local input, got focus %d", m.form.focus)
 	}
 }
@@ -150,7 +157,7 @@ func TestFormDownUpStaysInButtonColumn(t *testing.T) {
 
 func TestFormTabCyclesAllSlots(t *testing.T) {
 	m := openAddForm(t) // slot 0 (Name input)
-	n := len(formSlots)
+	n := len(m.form.slots())
 	// Tab steps through every slot in order: Name, each path input, each Browse
 	// button, then Save and Cancel.
 	for step := 1; step <= n; step++ {
@@ -191,8 +198,8 @@ func TestFormHasHints(t *testing.T) {
 // bug fails instead of hanging).
 func tabToKind(t *testing.T, m model, kind slotKind) model {
 	t.Helper()
-	for i := 0; i <= len(formSlots); i++ {
-		if formSlots[m.form.focus].kind == kind {
+	for i := 0; i <= len(m.form.slots()); i++ {
+		if m.form.focusKind() == kind {
 			return m
 		}
 		m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
@@ -298,11 +305,11 @@ func TestFormEnterOnBrowseOpensPicker(t *testing.T) {
 func TestSaveCancelLeftRight(t *testing.T) {
 	m := tabToKind(t, openAddForm(t), slotSave)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
-	if formSlots[m.form.focus].kind != slotCancel {
+	if m.form.focusKind() != slotCancel {
 		t.Fatalf("right from Save should focus Cancel, got slot %d", m.form.focus)
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft})
-	if formSlots[m.form.focus].kind != slotSave {
+	if m.form.focusKind() != slotSave {
 		t.Fatalf("left from Cancel should focus Save, got slot %d", m.form.focus)
 	}
 }
@@ -391,9 +398,9 @@ func TestEditRenameReplacesKey(t *testing.T) {
 }
 
 // TestEditPreservesSubpaths guards against the add/edit form silently dropping a
-// profile's subpaths. The form has no subpaths input, so editing a subpaths-bearing
-// profile (here changing its local root) and saving must round-trip the subpaths
-// untouched rather than reset them to nil.
+// profile's subpaths: editing a subpaths-bearing profile (here changing its local
+// root) without touching the subpath rows must round-trip the subpaths untouched
+// rather than reset them to nil.
 func TestEditPreservesSubpaths(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := &config.Config{Profiles: map[string]config.Profile{
@@ -419,6 +426,153 @@ func TestEditPreservesSubpaths(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Subpaths, []string{"a", "b/c"}) {
 		t.Fatalf("subpaths = %#v, want [a b/c] preserved across an edit", got.Subpaths)
+	}
+}
+
+// TestFormShowsSubpathRows: a profile's subpaths render as editable rows in the
+// form — one input per subpath (seeded with its value) with a Remove button —
+// plus an Add-subpath button, under a Subpaths section label.
+func TestFormShowsSubpathRows(t *testing.T) {
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r", Subpaths: []string{"a", "b/c"}})
+	f.setWidth(80)
+	view := f.View()
+	if !strings.Contains(view, "Subpaths") {
+		t.Fatalf("form view missing the Subpaths label:\n%s", view)
+	}
+	for _, sub := range []string{"a", "b/c"} {
+		if !strings.Contains(view, sub) {
+			t.Fatalf("form view missing subpath %q:\n%s", sub, view)
+		}
+	}
+	if n := strings.Count(view, "Remove"); n != 2 {
+		t.Fatalf("want 2 Remove buttons (one per subpath), got %d:\n%s", n, view)
+	}
+	if !strings.Contains(view, "Add subpath") {
+		t.Fatalf("form view missing the Add subpath button:\n%s", view)
+	}
+}
+
+// TestFormAddSubpathAppendsRow: activating the Add-subpath button appends an
+// empty subpath input and focuses it, ready for typing.
+func TestFormAddSubpathAppendsRow(t *testing.T) {
+	m := openAddForm(t)
+	m = tabToKind(t, m, slotAdd)
+	m = update(t, m, spaceKey)
+	if got := len(m.form.inputs); got != 4 {
+		t.Fatalf("inputs = %d, want 4 (name, roots, one subpath)", got)
+	}
+	if k := m.form.focusKind(); k != slotInput || m.form.focusField() != 3 {
+		t.Fatalf("focus should land on the new subpath input, got kind %d field %d", k, m.form.focusField())
+	}
+	m = typeRunes(t, m, "docs")
+	if got := m.form.inputs[3].Value(); got != "docs" {
+		t.Fatalf("subpath input = %q, want docs", got)
+	}
+}
+
+// TestFormRemoveSubpathDeletesRow: activating a subpath's Remove button drops
+// that row (and only that row).
+func TestFormRemoveSubpathDeletesRow(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {LocalRoot: "/l", RemoteRoot: "/r", Subpaths: []string{"a", "b"}},
+	}}
+	m := newModel(p, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m = tabToKind(t, m, slotRemove) // first subpath's Remove button
+	m = update(t, m, spaceKey)
+	if got := len(m.form.inputs); got != 4 {
+		t.Fatalf("inputs = %d, want 4 after removing one of two subpaths", got)
+	}
+	if got := m.form.inputs[3].Value(); got != "b" {
+		t.Fatalf("remaining subpath = %q, want b (first row removed)", got)
+	}
+}
+
+// TestFormSavePersistsEditedSubpaths: subpath edits made in the form (adding a
+// row, editing an existing one) survive Save and land in the config file.
+func TestFormSavePersistsEditedSubpaths(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {LocalRoot: "/l", RemoteRoot: "/r", Subpaths: []string{"a"}},
+	}}
+	if err := config.Save(p, cfg); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(p, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m.form.inputs[3].SetValue("a2") // edit the existing subpath
+	m = tabToKind(t, m, slotAdd)
+	m = update(t, m, spaceKey) // add a second row
+	m = typeRunes(t, m, "b/c")
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+
+	if m.mode != modeMain {
+		t.Fatalf("want modeMain after save, got %d", m.mode)
+	}
+	saved, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.Profiles["work"].Subpaths; !reflect.DeepEqual(got, []string{"a2", "b/c"}) {
+		t.Fatalf("saved subpaths = %#v, want [a2 b/c]", got)
+	}
+}
+
+// TestFormSaveDropsBlankSubpaths: an added-but-left-empty subpath row is not an
+// error — it is simply dropped on save, and dropping the last one saves nil.
+func TestFormSaveDropsBlankSubpaths(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {LocalRoot: "/l", RemoteRoot: "/r"},
+	}}
+	if err := config.Save(p, cfg); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(p, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m = tabToKind(t, m, slotAdd)
+	m = update(t, m, spaceKey) // add a row, leave it blank
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+
+	if m.mode != modeMain {
+		t.Fatalf("want modeMain after save, got %d (err %q)", m.mode, m.form.err)
+	}
+	saved, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.Profiles["work"].Subpaths; got != nil {
+		t.Fatalf("saved subpaths = %#v, want nil (blank row dropped)", got)
+	}
+}
+
+// TestFormSaveRejectsInvalidSubpath: an invalid subpath (absolute, escaping the
+// root, ...) blocks the save with a validation error, like the root fields do.
+func TestFormSaveRejectsInvalidSubpath(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {LocalRoot: "/l", RemoteRoot: "/r"},
+	}}
+	m := newModel(p, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m = tabToKind(t, m, slotAdd)
+	m = update(t, m, spaceKey)
+	m = typeRunes(t, m, "../escape")
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+
+	if m.mode != modeForm {
+		t.Fatal("invalid subpath should keep the form open")
+	}
+	if m.form.err == "" {
+		t.Fatal("expected a validation error message")
 	}
 }
 

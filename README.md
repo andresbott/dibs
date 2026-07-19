@@ -14,8 +14,8 @@ A macOS cask is published into this repository on every tagged release. Because 
 isn't named `homebrew-*`, tap it with an explicit URL, then install:
 
 ```bash
-brew tap andresbott/tap https://github.com/andresbott/dibs
-brew install --cask andresbott/tap/dibs
+brew tap andresbott/dibs https://github.com/andresbott/dibs
+brew install --cask andresbott/dibs/dibs
 ```
 
 `rsync` is pulled in as a dependency, and `brew upgrade` will track future releases.

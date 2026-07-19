@@ -870,9 +870,13 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		return m, nil
 	case "enter":
-		switch formSlots[m.form.focus].kind {
+		switch m.form.focusKind() {
 		case slotButton:
 			return m, m.form.openPicker()
+		case slotRemove:
+			return m, m.form.removeSubpath(m.form.focusField())
+		case slotAdd:
+			return m, m.form.addSubpath()
 		case slotSave:
 			return m.submitForm()
 		case slotCancel:
@@ -881,9 +885,13 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// on a text input: enter does nothing
 	case " ":
-		switch formSlots[m.form.focus].kind {
+		switch m.form.focusKind() {
 		case slotButton:
 			return m, m.form.openPicker()
+		case slotRemove:
+			return m, m.form.removeSubpath(m.form.focusField())
+		case slotAdd:
+			return m, m.form.addSubpath()
 		case slotSave:
 			return m.submitForm()
 		case slotCancel:
@@ -954,6 +962,11 @@ func validateProfile(cfg *config.Config, origName, name string, p config.Profile
 	// The remote also accepts ssh:// and rsync:// endpoint URLs.
 	if err := config.ValidateRemoteRoot(p.RemoteRoot); err != nil {
 		return fmt.Errorf("remote root: %w", err)
+	}
+	for _, sub := range p.Subpaths {
+		if err := config.ValidateSubpath(sub); err != nil {
+			return fmt.Errorf("subpath %q: %w", sub, err)
+		}
 	}
 	return nil
 }

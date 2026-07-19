@@ -92,7 +92,7 @@ func (f formModel) confirmSelection() (formModel, tea.Cmd) {
 	field := f.focusField()
 	f.inputs[field].SetValue(sel)
 	f.browsing = false
-	return f, f.setFocus(inputSlot(field))
+	return f, f.setFocus(f.inputSlot(field))
 }
 
 // pickerHeight is the number of directory rows listed, sized to the terminal and

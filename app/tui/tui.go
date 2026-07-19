@@ -297,7 +297,9 @@ func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "i":
 		return m.openSettings()
 	case "a":
-		return m.openForm("", config.Profile{})
+		// A fresh profile starts with the default ignore list (file-manager
+		// metadata droppings); the user can remove the rows in the form.
+		return m.openForm("", config.Profile{Ignore: config.DefaultIgnore()})
 	case "e":
 		if name, ok := m.list.selected(); ok {
 			return m.openForm(name, m.cfg.Profiles[name])
@@ -877,6 +879,8 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.form.removeSubpath(m.form.focusField())
 		case slotAdd:
 			return m, m.form.addSubpath()
+		case slotAddIgnore:
+			return m, m.form.addIgnore()
 		case slotSave:
 			return m.submitForm()
 		case slotCancel:
@@ -892,6 +896,8 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.form.removeSubpath(m.form.focusField())
 		case slotAdd:
 			return m, m.form.addSubpath()
+		case slotAddIgnore:
+			return m, m.form.addIgnore()
 		case slotSave:
 			return m.submitForm()
 		case slotCancel:
@@ -966,6 +972,11 @@ func validateProfile(cfg *config.Config, origName, name string, p config.Profile
 	for _, sub := range p.Subpaths {
 		if err := config.ValidateSubpath(sub); err != nil {
 			return fmt.Errorf("subpath %q: %w", sub, err)
+		}
+	}
+	for _, pat := range p.Ignore {
+		if err := config.ValidateIgnorePattern(pat); err != nil {
+			return fmt.Errorf("ignore %q: %w", pat, err)
 		}
 	}
 	return nil

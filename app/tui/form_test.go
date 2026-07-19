@@ -50,8 +50,9 @@ func TestFormHasBrowseButtons(t *testing.T) {
 func TestFormDownUpColumn0IncludesSave(t *testing.T) {
 	m := openAddForm(t) // Name input (slot 0)
 	// Down descends the left column: Name → Local input → Remote input →
-	// Add subpath → Save → wrap.
-	for i, want := range []int{1, 3, 5, 6, 0} { // Local, Remote, Add, Save, wrap to Name
+	// Add subpath → the two default ignore inputs → Add ignore → Save → wrap.
+	// (A fresh add form seeds the default ignore rows, see openForm on "a".)
+	for i, want := range []int{1, 3, 5, 6, 8, 10, 11, 0} {
 		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 		if m.form.focus != want {
 			t.Fatalf("down #%d: focus = %d, want %d", i+1, m.form.focus, want)
@@ -59,8 +60,8 @@ func TestFormDownUpColumn0IncludesSave(t *testing.T) {
 	}
 	// Up from Name wraps to the bottom of the left column (Save).
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})
-	if m.form.focus != 6 {
-		t.Fatalf("up from Name: focus = %d, want 6 (Save)", m.form.focus)
+	if m.form.focus != 11 {
+		t.Fatalf("up from Name: focus = %d, want 11 (Save)", m.form.focus)
 	}
 }
 
@@ -73,14 +74,17 @@ func TestFormDownFromRemoteBrowseFallsToColumn0(t *testing.T) {
 		t.Fatalf("setup: want Remote Browse, got slot %d", m.form.focus)
 	}
 	// Down from Remote Browse: the Add row below has no right cell, so focus
-	// falls to column 0 (Add subpath); one more Down lands on Cancel (same column).
+	// falls to column 0 (Add subpath); Down then descends the default ignore
+	// rows' inputs, Add ignore, and lands on Save.
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	if m.form.focusKind() != slotAdd {
 		t.Fatalf("down from Remote Browse should fall to Add subpath, got slot %d", m.form.focus)
 	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	for range 4 { // two ignore inputs, Add ignore, then the action row
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	}
 	if m.form.focusKind() != slotSave {
-		t.Fatalf("down from Add subpath should focus Save, got slot %d", m.form.focus)
+		t.Fatalf("down through the ignore section should reach Save, got slot %d", m.form.focus)
 	}
 }
 
@@ -458,8 +462,8 @@ func TestFormAddSubpathAppendsRow(t *testing.T) {
 	m := openAddForm(t)
 	m = tabToKind(t, m, slotAdd)
 	m = update(t, m, spaceKey)
-	if got := len(m.form.inputs); got != 4 {
-		t.Fatalf("inputs = %d, want 4 (name, roots, one subpath)", got)
+	if got := len(m.form.inputs); got != 6 {
+		t.Fatalf("inputs = %d, want 6 (name, roots, one subpath, two default ignores)", got)
 	}
 	if k := m.form.focusKind(); k != slotInput || m.form.focusField() != 3 {
 		t.Fatalf("focus should land on the new subpath input, got kind %d field %d", k, m.form.focusField())
@@ -487,6 +491,132 @@ func TestFormRemoveSubpathDeletesRow(t *testing.T) {
 	}
 	if got := m.form.inputs[3].Value(); got != "b" {
 		t.Fatalf("remaining subpath = %q, want b (first row removed)", got)
+	}
+}
+
+// TestFormShowsIgnoreRows: a profile's ignore patterns render as editable rows
+// under an Ignored-files section label, each with a Remove button, plus an
+// Add-ignore button.
+func TestFormShowsIgnoreRows(t *testing.T) {
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r", Ignore: []string{".DS_Store", "*.tmp"}})
+	f.setWidth(80)
+	view := f.View()
+	if !strings.Contains(view, "Ignored files") {
+		t.Fatalf("form view missing the Ignored files label:\n%s", view)
+	}
+	for _, pat := range []string{".DS_Store", "*.tmp"} {
+		if !strings.Contains(view, pat) {
+			t.Fatalf("form view missing ignore pattern %q:\n%s", pat, view)
+		}
+	}
+	if n := strings.Count(view, "Remove"); n != 2 {
+		t.Fatalf("want 2 Remove buttons (one per ignore row), got %d:\n%s", n, view)
+	}
+	if !strings.Contains(view, "Add ignore") {
+		t.Fatalf("form view missing the Add ignore button:\n%s", view)
+	}
+}
+
+// TestFormAddIgnoreAppendsRow: activating the Add-ignore button appends an
+// empty pattern input and focuses it, ready for typing.
+func TestFormAddIgnoreAppendsRow(t *testing.T) {
+	m := openAddForm(t) // seeded with the two default ignore rows
+	m = tabToKind(t, m, slotAddIgnore)
+	m = update(t, m, spaceKey)
+	if got := len(m.form.inputs); got != 6 {
+		t.Fatalf("inputs = %d, want 6 (name, roots, three ignores)", got)
+	}
+	if k := m.form.focusKind(); k != slotInput || m.form.focusField() != 5 {
+		t.Fatalf("focus should land on the new ignore input, got kind %d field %d", k, m.form.focusField())
+	}
+	m = typeRunes(t, m, "*.tmp")
+	if got := m.form.inputs[5].Value(); got != "*.tmp" {
+		t.Fatalf("ignore input = %q, want *.tmp", got)
+	}
+}
+
+// TestFormRemoveIgnoreDeletesRow: activating an ignore row's Remove button drops
+// that row (and only that row); with no subpaths, the first Remove belongs to
+// the first ignore row.
+func TestFormRemoveIgnoreDeletesRow(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {LocalRoot: "/l", RemoteRoot: "/r", Ignore: []string{".DS_Store", ".directory"}},
+	}}
+	m := newModel(p, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m = tabToKind(t, m, slotRemove) // first ignore row's Remove button
+	m = update(t, m, spaceKey)
+	if got := len(m.form.inputs); got != 4 {
+		t.Fatalf("inputs = %d, want 4 after removing one of two ignore rows", got)
+	}
+	if got := m.form.inputs[3].Value(); got != ".directory" {
+		t.Fatalf("remaining ignore = %q, want .directory (first row removed)", got)
+	}
+}
+
+// TestFormSavePersistsIgnore: ignore edits made in the form survive Save and
+// land in the config file; blank rows are dropped.
+func TestFormSavePersistsIgnore(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {LocalRoot: "/l", RemoteRoot: "/r", Ignore: []string{".DS_Store"}},
+	}}
+	if err := config.Save(p, cfg); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(p, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m = tabToKind(t, m, slotAddIgnore)
+	m = update(t, m, spaceKey) // add a second pattern row
+	m = typeRunes(t, m, "*.tmp")
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+
+	if m.mode != modeMain {
+		t.Fatalf("want modeMain after save, got %d (err %q)", m.mode, m.form.err)
+	}
+	saved, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.Profiles["work"].Ignore; !reflect.DeepEqual(got, []string{".DS_Store", "*.tmp"}) {
+		t.Fatalf("saved ignore = %#v, want [.DS_Store *.tmp]", got)
+	}
+}
+
+// TestFormSaveRejectsInvalidIgnore: a slash-containing pattern blocks the save
+// with a validation error, like the other fields do.
+func TestFormSaveRejectsInvalidIgnore(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {LocalRoot: "/l", RemoteRoot: "/r"},
+	}}
+	m := newModel(p, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m = tabToKind(t, m, slotAddIgnore)
+	m = update(t, m, spaceKey)
+	m = typeRunes(t, m, "a/b")
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+
+	if m.mode != modeForm {
+		t.Fatal("invalid ignore pattern should keep the form open")
+	}
+	if m.form.err == "" {
+		t.Fatal("expected a validation error message")
+	}
+}
+
+// TestFormAddProfileSeedsDefaultIgnore: opening the add form (the `a` key)
+// prefills the default ignore patterns, which land in the saved profile.
+func TestFormAddProfileSeedsDefaultIgnore(t *testing.T) {
+	m := openAddForm(t)
+	if got := m.form.ignores(); !reflect.DeepEqual(got, config.DefaultIgnore()) {
+		t.Fatalf("add form ignores = %#v, want the defaults %#v", got, config.DefaultIgnore())
 	}
 }
 

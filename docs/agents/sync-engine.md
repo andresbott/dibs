@@ -27,6 +27,17 @@ Design spec: [`../superpowers/specs/2026-07-14-threewayrsync-design.md`](../supe
   on both ends, hence the up-front `CheckBinary` (macOS openrsync fails fast with an
   actionable message). Local deletes are `os.Remove`, re-stat-guarded so a file edited
   between planning and apply is skipped, not lost.
+- **Ignore patterns are a Go-side partition, not an rsync exclude.** `Options.Ignore`
+  (slash-free `path.Match` globs; a path is ignored when ANY segment matches, so an
+  ignored dir name covers its subtree) filters the listings and the loaded base right
+  after enumeration in `computePlan`; the classifier, the valves, and `mergedBase` only
+  ever see the kept part, and the union of ignored paths is reported in `Plan.Ignored` /
+  `Result.Ignored`. Deliberately NOT `--exclude`: the listings must still include
+  ignored paths so they can be shown to the user, and since transfers/deletes are
+  explicit `--files-from` lists built from the plan, nothing ignored can leak into
+  either. `Plan.Ignored` does not count toward `InSync`, so an ignored `.DS_Store` on
+  one side never blocks a checkin. (`Options.Exclude` remains the marker's mechanism —
+  fully invisible, not even reported.)
 - **Safety valves in the engine:** strict list parsing (a malformed line is an error,
   not a skip — silent skips once turned format drift into phantom deletions); listing
   paths that are absolute or contain `..` are rejected; ssh/daemon URL components are

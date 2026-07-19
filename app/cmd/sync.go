@@ -115,4 +115,10 @@ func printReconcileReport(w io.Writer, name string, rep lifecycle.Report) {
 			_, _ = fmt.Fprintf(w, "  pending del-local  → %s\n", p)
 		}
 	}
+	if len(rep.Ignored) > 0 {
+		_, _ = fmt.Fprintf(w, "  %d ignored (never synced):\n", len(rep.Ignored))
+		for _, p := range rep.Ignored {
+			_, _ = fmt.Fprintf(w, "  ignored → %s\n", p)
+		}
+	}
 }

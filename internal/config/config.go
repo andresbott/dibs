@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -29,7 +30,17 @@ type Profile struct {
 	// the scope), because unlisted local content risks stranding work, while unlisted
 	// remote content simply stays remote until the user widens this list.
 	Subpaths []string `yaml:"subpaths,omitempty"`
+	// Ignore lists slash-free glob patterns (path.Match) for filenames the sync
+	// never touches: a path any of whose segments matches a pattern is neither
+	// pulled, pushed, nor deleted — it is reported under its own "ignored"
+	// category. Meant for filesystem metadata droppings (.DS_Store, .directory).
+	Ignore []string `yaml:"ignore,omitempty"`
 }
+
+// DefaultIgnore is the ignore list seeded into newly created profiles: the
+// metadata files macOS Finder (.DS_Store) and KDE Dolphin (.directory) drop
+// into any folder they display — including a freshly mounted share.
+func DefaultIgnore() []string { return []string{".DS_Store", ".directory"} }
 
 // Config is the on-disk configuration: an identity string and named profiles.
 type Config struct {
@@ -159,6 +170,37 @@ func ValidateSubpath(sub string) error {
 		return errors.New("subpath must not escape the root")
 	}
 	return nil
+}
+
+// ValidateIgnorePattern reports whether an ignore pattern is usable: non-blank,
+// free of slashes (patterns match single path segments, so a slash could never
+// match), and a valid path.Match glob.
+func ValidateIgnorePattern(pat string) error {
+	p := strings.TrimSpace(pat)
+	if p == "" {
+		return errors.New("ignore pattern is required")
+	}
+	if strings.Contains(p, "/") {
+		return errors.New("ignore pattern must not contain a slash (it matches a single file or folder name)")
+	}
+	if _, err := path.Match(p, "x"); err != nil {
+		return errors.New("ignore pattern is not a valid glob")
+	}
+	return nil
+}
+
+// MatchesIgnoreName reports whether a single path segment (a file or directory
+// name) matches any of the profile's ignore patterns. Invalid patterns never
+// match — validation happens at edit time (ValidateIgnorePattern). The
+// path-level matching (any segment ignores the subtree) lives in the sync
+// engine; this name-level helper serves the local walkers (sanity, localstat).
+func MatchesIgnoreName(name string, patterns []string) bool {
+	for _, pat := range patterns {
+		if ok, _ := path.Match(strings.TrimSpace(pat), name); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Target is a concrete pair of absolute paths a profile action operates on. Subpath is

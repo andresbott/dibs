@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 )
 
 // Syncer performs three-way syncs between a local and a remote endpoint using rsync,
@@ -97,7 +98,10 @@ func (s *Syncer) list(ctx context.Context, e Endpoint, exclude, scope []string) 
 
 // computePlan loads the base, enumerates both endpoints, and classifies. It returns the
 // plan plus the base and the two live manifests (Sync needs them to derive the merged
-// base). opts.Scope must already be normalized (both public entry points do).
+// base). opts.Scope and opts.Ignore must already be normalized (both public entry
+// points do). Ignored paths are partitioned out of the listings and the base BEFORE
+// anything judges them — the valves, the classifier, and the returned manifests all see
+// only the kept part — and surface solely in Plan.Ignored.
 func (s *Syncer) computePlan(ctx context.Context, local, remote Endpoint, opts Options) (Plan, Manifest, Manifest, Manifest, error) {
 	if s.Store == nil {
 		return Plan{}, nil, nil, nil, errors.New("threewayrsync: Syncer.Store is required")
@@ -112,6 +116,9 @@ func (s *Syncer) computePlan(ctx context.Context, local, remote Endpoint, opts O
 	if base == nil {
 		base = Manifest{}
 	}
+	// A base entry that now matches an ignore pattern must drop out of the merge
+	// silently: keeping it would plan its absence as a deletion on both sides.
+	base, _ = partitionIgnored(base, opts.Ignore)
 	// A local working copy that does not exist yet is only acceptable while the
 	// in-scope base is empty (nothing has been synced, so nothing can be lost —
 	// it is simply an empty tree). With base entries in scope, a missing local
@@ -134,6 +141,8 @@ func (s *Syncer) computePlan(ctx context.Context, local, remote Endpoint, opts O
 	if err != nil {
 		return Plan{}, nil, nil, nil, err
 	}
+	localM, ignoredLocal := partitionIgnored(localM, opts.Ignore)
+	remoteM, ignoredRemote := partitionIgnored(remoteM, opts.Ignore)
 	// A scoped sync only sees the in-scope part of the tree, so "suddenly lists nothing"
 	// is judged against the in-scope base entries: a legitimately empty scope dir must
 	// not trip the valve just because the rest of the base has files.
@@ -145,7 +154,26 @@ func (s *Syncer) computePlan(ctx context.Context, local, remote Endpoint, opts O
 			return Plan{}, nil, nil, nil, &EmptyEndpointError{Side: "remote", Path: remote.Path}
 		}
 	}
-	return Classify(base, localM, remoteM), base, localM, remoteM, nil
+	plan := Classify(base, localM, remoteM)
+	plan.Ignored = unionSorted(ignoredLocal, ignoredRemote)
+	return plan, base, localM, remoteM, nil
+}
+
+// unionSorted merges two sorted string slices into one sorted, deduplicated slice.
+func unionSorted(a, b []string) []string {
+	if len(a) == 0 {
+		return b
+	}
+	seen := make(map[string]struct{}, len(a)+len(b))
+	var out []string
+	for _, s := range append(append([]string(nil), a...), b...) {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Diff performs a dry run: it loads the base, enumerates both endpoints, and classifies
@@ -156,6 +184,11 @@ func (s *Syncer) Diff(ctx context.Context, local, remote Endpoint, opts Options)
 		return Plan{}, err
 	}
 	opts.Scope = scope
+	ignore, err := normalizeIgnore(opts.Ignore)
+	if err != nil {
+		return Plan{}, err
+	}
+	opts.Ignore = ignore
 	plan, _, _, _, err := s.computePlan(ctx, local, remote, opts)
 	return plan, err
 }

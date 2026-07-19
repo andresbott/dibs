@@ -20,7 +20,12 @@ type Plan struct {
 	LocalDeletes  []string // remove under the local root
 	RemoteDeletes []string // remove under the remote root
 	Conflicts     []string // changed on both sides and not converged
-	InSync        bool     // every bucket empty
+	// Ignored lists the paths (union of both sides, sorted) that matched
+	// Options.Ignore: enumerated but never classified, transferred, deleted, or
+	// recorded in the base. Not counted in InSync — an ignored file never blocks
+	// anything.
+	Ignored []string
+	InSync  bool // every operation bucket empty (Ignored excepted)
 }
 
 // classifyPath encodes the three-way merge table. "changed" is meaningful only when the

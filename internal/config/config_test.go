@@ -109,6 +109,61 @@ func TestSaveRoundTripSubpaths(t *testing.T) {
 	}
 }
 
+func TestSaveRoundTripIgnore(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	in := &config.Config{
+		Profiles: map[string]config.Profile{
+			"work": {
+				LocalRoot:  "/home/me/work",
+				RemoteRoot: "/mnt/nas/work",
+				Ignore:     []string{".DS_Store", "*.tmp"},
+			},
+		},
+	}
+	if err := config.Save(p, in); err != nil {
+		t.Fatal(err)
+	}
+	out, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out.Profiles["work"], in.Profiles["work"]) {
+		t.Fatalf("round trip mismatch:\n got %#v\nwant %#v", out.Profiles["work"], in.Profiles["work"])
+	}
+}
+
+func TestValidateIgnorePattern(t *testing.T) {
+	valid := []string{".DS_Store", ".directory", "*.tmp", "Thumbs.db", "[Dd]esktop.ini"}
+	for _, s := range valid {
+		if err := config.ValidateIgnorePattern(s); err != nil {
+			t.Errorf("ValidateIgnorePattern(%q) = %v, want nil", s, err)
+		}
+	}
+	invalid := []string{"", "   ", "a/b", "/abs", "[unclosed"}
+	for _, s := range invalid {
+		if err := config.ValidateIgnorePattern(s); err == nil {
+			t.Errorf("ValidateIgnorePattern(%q) = nil, want error", s)
+		}
+	}
+}
+
+func TestMatchesIgnoreName(t *testing.T) {
+	pats := []string{".DS_Store", "*.tmp"}
+	for name, want := range map[string]bool{
+		".DS_Store": true,
+		"a.tmp":     true,
+		"a.txt":     false,
+		"DS_Store":  false,
+	} {
+		if got := config.MatchesIgnoreName(name, pats); got != want {
+			t.Errorf("MatchesIgnoreName(%q) = %v, want %v", name, got, want)
+		}
+	}
+	if config.MatchesIgnoreName("x", nil) {
+		t.Error("nil patterns must match nothing")
+	}
+}
+
 func TestSaveOmitsEmptySubpaths(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.yaml")
 	in := &config.Config{Profiles: map[string]config.Profile{

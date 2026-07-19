@@ -49,6 +49,14 @@ type Options struct {
 	Conflict ConflictPolicy
 	OnEvent  func(Event) // per-path progress; runs on the sync goroutine — must not block
 
+	// Ignore lists slash-free glob patterns (path.Match) for paths the sync must
+	// never touch: a path any of whose segments matches a pattern is excluded from
+	// classification, the base manifest, transfers, and deletes, and reported in
+	// Plan.Ignored / Result.Ignored instead. Unlike Exclude — which hides the marker
+	// from the listings entirely — ignored paths ARE listed, so they can be shown to
+	// the user; they just never participate in the sync.
+	Ignore []string
+
 	// AcceptEmpty permits syncing against a local endpoint that is an empty directory
 	// even though the base records files from a previous sync. Without it, Sync and Diff
 	// fail with *EmptyEndpointError: an empty-but-listable directory is exactly what an

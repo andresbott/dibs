@@ -55,6 +55,7 @@ type Report struct {
 	Abandoned     bool // the release skipped the in-sync verification (checkin --abandon)
 	PendingRemote []string // planned remote deletions skipped (allow-deletes off)
 	PendingLocal  []string // planned local deletions skipped (allow-deletes off)
+	Ignored       []string // paths matching the profile's ignore patterns — never touched
 }
 
 // EventKind is the verb of a single applied change, mirroring the status view.
@@ -152,6 +153,7 @@ type profilePlan struct {
 	marker        *marker.Marker
 	state         *baseline.State
 	scope         []string
+	ignore        []string // the profile's ignore patterns, handed to the engine
 }
 
 // preflightProfile runs the checks shared by sync and checkin, mutating nothing:
@@ -250,7 +252,7 @@ func (r Runner) preflightProfile(ctx context.Context, name string, p config.Prof
 		relpaths = []string{rel}
 	}
 
-	return profilePlan{local: local, remote: remote, acc: acc, marker: m, state: st, scope: scopeFor(relpaths)}, nil
+	return profilePlan{local: local, remote: remote, acc: acc, marker: m, state: st, scope: scopeFor(relpaths), ignore: p.Ignore}, nil
 }
 
 // refuseUnlistedLocal errors when local content lies outside the profile's

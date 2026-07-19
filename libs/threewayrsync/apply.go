@@ -57,6 +57,7 @@ type Result struct {
 	Conflicts            []string // conflicts left unresolved (Skip policy, deletes skipped because the file changed after planning, or directory deletes skipped because the directory would not be empty)
 	SkippedLocalDeletes  []string // planned local deletions not applied (Options.AllowDeletes off)
 	SkippedRemoteDeletes []string // planned remote deletions not applied (Options.AllowDeletes off)
+	Ignored              []string // paths matching Options.Ignore — enumerated but never touched
 	BaseSaved            bool
 }
 
@@ -134,6 +135,11 @@ func (s *Syncer) Sync(ctx context.Context, local, remote Endpoint, opts Options)
 		return Result{}, err
 	}
 	opts.Scope = scope
+	ignore, err := normalizeIgnore(opts.Ignore)
+	if err != nil {
+		return Result{}, err
+	}
+	opts.Ignore = ignore
 
 	if l, ok := s.Store.(Locker); ok {
 		release, err := l.TryLock()
@@ -177,19 +183,19 @@ func (s *Syncer) Sync(ctx context.Context, local, remote Endpoint, opts Options)
 	var applied Plan
 	if len(pull) > 0 {
 		if err := s.pullInto(ctx, remote, local, pull, opts); err != nil {
-			return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote}, err
+			return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote, Ignored: plan.Ignored}, err
 		}
 		applied.Pull = pull
 	}
 	if len(push) > 0 {
 		if err := s.transfer(ctx, local, remote, push, opts, "push"); err != nil {
-			return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote}, err
+			return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote, Ignored: plan.Ignored}, err
 		}
 		applied.Push = push
 	}
 	rDeleted, rSkipped, err := s.deleteFrom(ctx, remote, plan.RemoteDeletes, remoteM)
 	if err != nil {
-		return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote}, err
+		return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote, Ignored: plan.Ignored}, err
 	}
 	applied.RemoteDeletes = rDeleted
 	for _, rel := range rDeleted {
@@ -197,7 +203,7 @@ func (s *Syncer) Sync(ctx context.Context, local, remote Endpoint, opts Options)
 	}
 	lDeleted, lSkipped, err := s.deleteFrom(ctx, local, plan.LocalDeletes, localM)
 	if err != nil {
-		return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote}, err
+		return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote, Ignored: plan.Ignored}, err
 	}
 	applied.LocalDeletes = lDeleted
 	for _, rel := range lDeleted {
@@ -209,13 +215,13 @@ func (s *Syncer) Sync(ctx context.Context, local, remote Endpoint, opts Options)
 
 	postLocal, postRemote, err := s.postApplyManifests(ctx, local, remote, applied, localM, remoteM, opts)
 	if err != nil {
-		return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote}, err
+		return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote, Ignored: plan.Ignored}, err
 	}
 	merged := mergedBase(base, postLocal, postRemote, opts.Scope)
 	if err := s.Store.SaveBase(merged); err != nil {
-		return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote}, err
+		return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote, Ignored: plan.Ignored}, err
 	}
-	return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote, BaseSaved: true}, nil
+	return Result{Applied: applied, Conflicts: unresolved, SkippedLocalDeletes: skippedLocal, SkippedRemoteDeletes: skippedRemote, Ignored: plan.Ignored, BaseSaved: true}, nil
 }
 
 // checkWipeValve refuses a plan that empties an endpoint of every in-scope file
@@ -252,6 +258,10 @@ func (s *Syncer) postApplyManifests(ctx context.Context, local, remote Endpoint,
 	if err != nil {
 		return nil, nil, err
 	}
+	// The re-listings see ignored paths again (only the plan filtered them);
+	// partition here too so the merged base can never absorb one.
+	postLocal, _ = partitionIgnored(postLocal, opts.Ignore)
+	postRemote, _ = partitionIgnored(postRemote, opts.Ignore)
 	return postLocal, postRemote, nil
 }
 

@@ -44,6 +44,7 @@ func engineOptions(pf profilePlan, opts Options, base threewayrsync.Manifest) th
 		Scope:        pf.scope,
 		Conflict:     policy,
 		Exclude:      marker.Exclude(),
+		Ignore:       pf.ignore,
 		AcceptEmpty:  true,
 		AllowDeletes: opts.AllowDeletes,
 	}
@@ -113,6 +114,7 @@ func fillPlan(rep *Report, plan threewayrsync.Plan) {
 	rep.RemovedRemote = plan.RemoteDeletes
 	rep.RemovedLocal = plan.LocalDeletes
 	rep.Conflicts = plan.Conflicts
+	rep.Ignored = plan.Ignored
 }
 
 // Sync reconciles a held checkout in place, leaving the lock untouched. The
@@ -154,6 +156,7 @@ func (r Runner) Sync(ctx context.Context, name string, p config.Profile, id iden
 	rep.Conflicts = res.Conflicts
 	rep.PendingRemote = res.SkippedRemoteDeletes
 	rep.PendingLocal = res.SkippedLocalDeletes
+	rep.Ignored = res.Ignored
 	if err != nil {
 		var ce *threewayrsync.ConflictError
 		if errors.As(err, &ce) {

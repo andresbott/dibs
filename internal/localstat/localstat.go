@@ -24,7 +24,9 @@ type Stats struct {
 // Scan walks each local target of the profile counting directories, regular
 // files, and total bytes. It honors subpaths (via p.Targets()); a missing local
 // subtree is skipped rather than erroring. The marker file is excluded and only
-// regular files are counted, mirroring baseline.Scan's rules.
+// regular files are counted, mirroring baseline.Scan's rules. Entries matching
+// the profile's ignore patterns are skipped (an ignored directory including its
+// contents), so the counts match what a sync would actually operate on.
 func Scan(p config.Profile) (Stats, error) {
 	targets, err := p.Targets()
 	if err != nil {
@@ -39,6 +41,12 @@ func Scan(p config.Profile) (Stats, error) {
 		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
+			}
+			if path != base && config.MatchesIgnoreName(d.Name(), p.Ignore) {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
 			}
 			if d.IsDir() {
 				// Count nested folders only; the target root itself is not a "folder

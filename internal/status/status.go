@@ -35,9 +35,11 @@ type TargetStatus struct {
 	LocalDeletes  []string // mirror a remote delete by removing the local file
 	RemoteDeletes []string // propagate a local delete by removing the remote file
 	Conflicts     []string // changed on both sides; a sync would stop
+	Ignored       []string // match the profile's ignore patterns; a sync never touches them
 }
 
 // InSync reports whether this target has no pending changes in any bucket.
+// Ignored paths don't count: a sync would not touch them.
 func (t TargetStatus) InSync() bool {
 	return len(t.Push)+len(t.Pull)+len(t.LocalDeletes)+len(t.RemoteDeletes)+len(t.Conflicts) == 0
 }
@@ -143,6 +145,7 @@ func ComputeWith(ctx context.Context, differ Differ, name string, p config.Profi
 	plan, err := differ.Diff(ctx, p.LocalEndpoint(), remote, threewayrsync.Options{
 		Scope:       st.Scope(),
 		Exclude:     marker.Exclude(),
+		Ignore:      p.Ignore,
 		AcceptEmpty: true, // status is read-only; an empty side is data, not danger
 	})
 	if err != nil {
@@ -193,5 +196,6 @@ func targetFromPlan(subpath string, plan threewayrsync.Plan, base threewayrsync.
 		LocalDeletes:  filter(plan.LocalDeletes),
 		RemoteDeletes: filter(plan.RemoteDeletes),
 		Conflicts:     filter(plan.Conflicts),
+		Ignored:       filter(plan.Ignored),
 	}
 }

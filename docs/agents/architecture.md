@@ -79,7 +79,9 @@ Each was added after a concrete failure mode was identified; do not remove casua
 - **Unlisted-local guard** (`sanity.UnlistedLocal`): local content outside the declared
   `subpaths` would be silently stranded by scoped syncs — warning on `status`, blocking
   on `sync`/`checkin`. Local side only, by design: unlisted *remote* content simply stays
-  remote (`subpaths` is a hard scope, not a live view).
+  remote (`subpaths` is a hard scope, not a live view). Entries matching the profile's
+  `ignore` patterns (`.DS_Store` etc., see below) are invisible to this guard and to the
+  envelope guard — sync never touches them, so they can't strand work.
 - **Envelope guard** (`sanity.UnlistedOutside`): the same hazard one level down — content
   inside a declared subpath but outside the *checked-out* relpaths, invisible to
   checkin's in-sync verification (which `--clean` would then delete).
@@ -91,6 +93,17 @@ Each was added after a concrete failure mode was identified; do not remove casua
   a config typo must not aim `os.RemoveAll` at a catastrophic target.
 - `checkin --abandon` deliberately skips the unlisted/baseline/root-binding guards
   (a wedged guard is exactly what one abandons out of) but never the ownership check.
+
+## Ignore patterns (added 2026-07-19)
+
+Per-profile `ignore:` lists slash-free `path.Match` globs (defaults for new TUI-created
+profiles: `.DS_Store`, `.directory`) for file-manager metadata droppings. A path is
+ignored when any segment matches, so an ignored dir name covers its subtree. The engine
+partitions them out Go-side (see [sync-engine.md](sync-engine.md)) and reports them as
+their own **ignored** category in status/sync (CLI and TUI); they never transfer, never
+delete, never enter the base, and never block checkin. The sanity guards and localstat
+skip them too. Checkout's vacant-target guard deliberately still counts them (data
+safety kept strict).
 
 ## Still deferred
 

@@ -221,6 +221,40 @@ func TestUnlistedLocal(t *testing.T) {
 	}
 }
 
+// A .DS_Store dropped by the file manager — loose at the root or as the sole
+// content of an uncovered dir — must not trip the unlisted-local guard when the
+// profile ignores it: sync will never touch it, so it can't strand work.
+func TestUnlistedLocalSkipsIgnored(t *testing.T) {
+	local := t.TempDir()
+	for _, f := range []string{"a/f", ".DS_Store", "junk/.DS_Store"} {
+		full := filepath.Join(local, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := config.Profile{LocalRoot: local, Subpaths: []string{"a"}, Ignore: []string{".DS_Store"}}
+	got, err := UnlistedLocal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Errorf("UnlistedLocal = %v, want nil (ignored files must not be flagged)", got)
+	}
+	// Without the ignore pattern the same tree IS flagged — the ignore list is
+	// what makes the difference.
+	p.Ignore = nil
+	got, err = UnlistedLocal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{".DS_Store", "junk"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("UnlistedLocal = %v, want %v", got, want)
+	}
+}
+
 func TestUnlistedLocalMissingRoot(t *testing.T) {
 	got, err := UnlistedLocal(config.Profile{
 		LocalRoot: filepath.Join(t.TempDir(), "nope"),

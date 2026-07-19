@@ -67,6 +67,25 @@ func TestScanHonorsSubpaths(t *testing.T) {
 	}
 }
 
+func TestScanSkipsIgnoredNames(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a.txt", "hello")            // 5 bytes, counted
+	writeFile(t, root, ".DS_Store", "junk")         // ignored file
+	writeFile(t, root, "sub/.DS_Store", "junk")     // ignored file, nested
+	writeFile(t, root, ".git/config", "not synced") // ignored dir: contents skipped too
+
+	got, err := Scan(config.Profile{LocalRoot: root, RemoteRoot: root, Ignore: []string{".DS_Store", ".git"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Files != 1 || got.Bytes != 5 {
+		t.Errorf("scan = %+v; want Files 1 Bytes 5", got)
+	}
+	if got.Dirs != 1 { // sub only; .git is ignored
+		t.Errorf("Dirs = %d; want 1", got.Dirs)
+	}
+}
+
 func TestScanMissingLocalRootIsEmptyNotError(t *testing.T) {
 	got, err := Scan(config.Profile{LocalRoot: filepath.Join(t.TempDir(), "nope"), RemoteRoot: "/x"})
 	if err != nil {

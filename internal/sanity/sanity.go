@@ -100,7 +100,9 @@ func checkMountedRemote(p config.Profile, r *Result) {
 // every declared subpath. Loose regular files directly under local_root are reported
 // individually. It returns nil when the profile declares no subpaths (whole root => all
 // content is in scope) or when local_root does not exist. Symlinks are not regular files
-// and never, by themselves, make a directory "contain files".
+// and never, by themselves, make a directory "contain files". Entries matching the
+// profile's ignore patterns are invisible to the walk — sync never touches them, so
+// they can't strand work (a .DS_Store dropped by Finder must not wedge every sync).
 func UnlistedLocal(p config.Profile) ([]string, error) {
 	if len(p.Subpaths) == 0 {
 		return nil, nil
@@ -130,7 +132,7 @@ func UnlistedOutside(p config.Profile, cover []string) ([]string, error) {
 		return nil, nil
 	}
 	var flagged []string
-	if err := walkUnlisted(localRoot, ".", subs, &flagged); err != nil {
+	if err := walkUnlisted(localRoot, ".", subs, p.Ignore, &flagged); err != nil {
 		return nil, err
 	}
 	sort.Strings(flagged)
@@ -141,7 +143,8 @@ func UnlistedOutside(p config.Profile, cover []string) ([]string, error) {
 }
 
 // walkUnlisted recurses under localRoot at relative rel, appending uncovered entries.
-func walkUnlisted(localRoot, rel string, subs []string, out *[]string) error {
+// Entries whose name matches an ignore pattern are skipped entirely.
+func walkUnlisted(localRoot, rel string, subs, ignore []string, out *[]string) error {
 	dir := localRoot
 	if rel != "." {
 		dir = filepath.Join(localRoot, filepath.FromSlash(rel))
@@ -151,6 +154,9 @@ func walkUnlisted(localRoot, rel string, subs []string, out *[]string) error {
 		return err
 	}
 	for _, e := range entries {
+		if config.MatchesIgnoreName(e.Name(), ignore) {
+			continue
+		}
 		childRel := e.Name()
 		if rel != "." {
 			childRel = rel + "/" + e.Name()
@@ -160,11 +166,11 @@ func walkUnlisted(localRoot, rel string, subs []string, out *[]string) error {
 			case isCovered(childRel, subs):
 				// fully in scope; skip.
 			case isAncestorOfSubpath(childRel, subs):
-				if err := walkUnlisted(localRoot, childRel, subs, out); err != nil {
+				if err := walkUnlisted(localRoot, childRel, subs, ignore, out); err != nil {
 					return err
 				}
 			default:
-				hasFile, err := containsRegularFile(filepath.Join(localRoot, filepath.FromSlash(childRel)))
+				hasFile, err := containsRegularFile(filepath.Join(localRoot, filepath.FromSlash(childRel)), ignore)
 				if err != nil {
 					return err
 				}
@@ -202,12 +208,20 @@ func isAncestorOfSubpath(rel string, subs []string) bool {
 	return false
 }
 
-// containsRegularFile reports whether dir holds at least one regular file at any depth.
-func containsRegularFile(dir string) (bool, error) {
+// containsRegularFile reports whether dir holds at least one regular file at any
+// depth, not counting ignored names: a directory holding nothing but .DS_Store
+// files does not "contain files" as far as the sync is concerned.
+func containsRegularFile(dir string, ignore []string) (bool, error) {
 	found := false
 	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if config.MatchesIgnoreName(d.Name(), ignore) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if d.Type().IsRegular() {
 			found = true

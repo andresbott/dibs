@@ -248,6 +248,34 @@ func TestComputeRemoteAddIsPull(t *testing.T) {
 	}
 }
 
+// A remote-only file matching the profile's ignore patterns is reported under
+// Ignored — never as a pull — and the target still reads in sync, so a
+// .DS_Store dropped on the share by mounting it can't block a checkin.
+func TestComputeIgnoredIsNotAPull(t *testing.T) {
+	name, p, local, remote := fixture(t)
+	p.Ignore = []string{".DS_Store"}
+	writeFile(t, local, "a.txt", "hello")
+	writeFile(t, remote, "a.txt", "hello")
+	markCheckedOut(t, remote)
+	baselineFromLocal(t, name, local)
+	writeFile(t, remote, ".DS_Store", "finder junk")
+
+	st, err := Compute(context.Background(), name, p, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt := only(t, st)
+	if len(tt.Pull) != 0 {
+		t.Errorf("ignored file must not be pulled; got Pull=%#v", tt.Pull)
+	}
+	if len(tt.Ignored) != 1 || tt.Ignored[0] != ".DS_Store" {
+		t.Errorf("want Ignored=[.DS_Store], got %#v", tt.Ignored)
+	}
+	if !tt.InSync() {
+		t.Errorf("an ignored file must not break in-sync; got %#v", tt)
+	}
+}
+
 func TestComputeModifyFlaggedOnEditedFile(t *testing.T) {
 	name, p, local, remote := fixture(t)
 	writeFile(t, local, "doc.txt", "v1")

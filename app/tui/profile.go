@@ -118,6 +118,9 @@ func statusOpKeys(st status.ProfileStatus) []string {
 		if len(t.Conflicts) > 0 {
 			add("conflict", "both")
 		}
+		if len(t.Ignored) > 0 {
+			add("ignored", "-")
+		}
 	}
 	return keys
 }
@@ -287,6 +290,9 @@ func actionBody(p profileModel) string {
 	if pend := len(rep.PendingRemote) + len(rep.PendingLocal); pend > 0 {
 		summary += fmt.Sprintf(", %d delete(s) pending (re-run Sync with \"allow deletes\")", pend)
 	}
+	if n := len(rep.Ignored); n > 0 {
+		summary += fmt.Sprintf(", %d ignored", n)
+	}
 	if rep.Abandoned {
 		// An abandon copies nothing, so a "pull 0, push 0" summary would misread
 		// as a verified in-sync release.
@@ -390,6 +396,10 @@ func statusBody(st status.ProfileStatus, width int, filter string) string {
 		}
 		for _, p := range t.Conflicts {
 			keep(verbStyle{"conflict", errStyle}, "both", p)
+		}
+		// Ignored paths render dimmed with a "-" side: a sync touches neither side.
+		for _, p := range t.Ignored {
+			keep(verbStyle{"ignored", helpTextStyle}, "-", p)
 		}
 		switch {
 		case b.Len() > 0:

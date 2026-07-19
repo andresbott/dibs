@@ -16,12 +16,14 @@ const (
 	slotButton
 	slotRemove
 	slotAdd
+	slotAddIgnore
 	slotSave
 	slotCancel
 )
 
 // numFixed is the count of fixed inputs (Name, Local root, Remote root);
-// inputs[numFixed:] are the subpath fields.
+// inputs[numFixed : numFixed+numSubs] are the subpath fields and
+// inputs[numFixed+numSubs:] the ignore-pattern fields.
 const numFixed = 3
 
 // focusSlot is one Tab stop, positioned on a grid: row is its line in the form
@@ -34,11 +36,12 @@ type focusSlot struct {
 	col   int
 }
 
-// slots is the Tab order (and the grid), built per call because the subpath
-// section grows and shrinks: the three fixed fields, one row per subpath (input
-// + Remove), the Add-subpath button, and the Save/Cancel action row. Every row
-// has a column-0 cell, so Down/Up can always fall back to column 0 when a row
-// lacks column 1.
+// slots is the Tab order (and the grid), built per call because the subpath and
+// ignore sections grow and shrink: the three fixed fields, one row per subpath
+// (input + Remove), the Add-subpath button, one row per ignore pattern (input +
+// Remove), the Add-ignore button, and the Save/Cancel action row. Every row has
+// a column-0 cell, so Down/Up can always fall back to column 0 when a row lacks
+// column 1.
 func (f formModel) slots() []focusSlot {
 	s := []focusSlot{
 		{slotInput, 0, 0, 0},  // Name
@@ -48,12 +51,18 @@ func (f formModel) slots() []focusSlot {
 		{slotButton, 2, 2, 1}, // Remote Browse
 	}
 	row := 3
-	for i := numFixed; i < len(f.inputs); i++ {
+	for i := numFixed; i < numFixed+f.numSubs; i++ {
+		s = append(s, focusSlot{slotInput, i, row, 0}, focusSlot{slotRemove, i, row, 1})
+		row++
+	}
+	s = append(s, focusSlot{slotAdd, -1, row, 0})
+	row++
+	for i := numFixed + f.numSubs; i < len(f.inputs); i++ {
 		s = append(s, focusSlot{slotInput, i, row, 0}, focusSlot{slotRemove, i, row, 1})
 		row++
 	}
 	return append(s,
-		focusSlot{slotAdd, -1, row, 0},
+		focusSlot{slotAddIgnore, -1, row, 0},
 		focusSlot{slotSave, -1, row + 1, 0},
 		focusSlot{slotCancel, -1, row + 1, 1})
 }
@@ -126,6 +135,7 @@ func (f formModel) slotAt(row, col int) int {
 
 type formModel struct {
 	inputs     []textinput.Model
+	numSubs    int    // count of subpath inputs; see the numFixed layout comment
 	focus      int
 	origName   string // "" for add; the existing name for edit
 	err        string
@@ -156,37 +166,71 @@ func newForm(origName string, p config.Profile) formModel {
 	for _, sub := range p.Subpaths {
 		inputs = append(inputs, newInput(sub))
 	}
+	for _, pat := range p.Ignore {
+		inputs = append(inputs, newInput(pat))
+	}
 
 	f := formModel{
 		inputs:   inputs,
+		numSubs:  len(p.Subpaths),
 		origName: origName,
 	}
 	f.inputs[0].Focus()
 	return f
 }
 
-// addSubpath appends an empty subpath input and focuses it.
+// addSubpath inserts an empty subpath input at the end of the subpath section
+// and focuses it.
 func (f *formModel) addSubpath() tea.Cmd {
+	at := numFixed + f.numSubs
+	f.inputs = append(f.inputs[:at], append([]textinput.Model{newInput("")}, f.inputs[at:]...)...)
+	f.numSubs++
+	f.sizeInputs()
+	return f.setFocus(f.inputSlot(at))
+}
+
+// addIgnore appends an empty ignore-pattern input and focuses it.
+func (f *formModel) addIgnore() tea.Cmd {
 	f.inputs = append(f.inputs, newInput(""))
 	f.sizeInputs()
 	return f.setFocus(f.inputSlot(len(f.inputs) - 1))
 }
 
-// removeSubpath deletes subpath input field (an index into f.inputs), moving
-// focus to the next row's Remove button (or the Add button when it was last).
+// removeSubpath deletes a subpath or ignore input field (an index into
+// f.inputs), moving focus to the next row's Remove button (or the section's Add
+// button when it was the section's last row).
 func (f *formModel) removeSubpath(field int) tea.Cmd {
+	inSubs := field < numFixed+f.numSubs
 	f.inputs = append(f.inputs[:field], f.inputs[field+1:]...)
+	if inSubs {
+		f.numSubs--
+		if field < numFixed+f.numSubs {
+			return f.setFocus(f.buttonSlot(field))
+		}
+		return f.setFocus(f.actionSlot(slotAdd))
+	}
 	if field < len(f.inputs) {
 		return f.setFocus(f.buttonSlot(field))
 	}
-	return f.setFocus(f.actionSlot(slotAdd))
+	return f.setFocus(f.actionSlot(slotAddIgnore))
 }
 
 // subpaths returns the trimmed, non-blank subpath input values (nil when none) —
 // blank rows are dropped rather than rejected.
 func (f formModel) subpaths() []string {
+	return nonBlank(f.inputs[numFixed : numFixed+f.numSubs])
+}
+
+// ignores returns the trimmed, non-blank ignore-pattern input values (nil when
+// none) — blank rows are dropped rather than rejected.
+func (f formModel) ignores() []string {
+	return nonBlank(f.inputs[numFixed+f.numSubs:])
+}
+
+// nonBlank collects the trimmed, non-empty values of a run of inputs.
+func nonBlank(inputs []textinput.Model) []string {
 	var out []string
-	for _, in := range f.inputs[numFixed:] {
+	for _, in := range inputs {
 		if v := strings.TrimSpace(in.Value()); v != "" {
 			out = append(out, v)
 		}
@@ -323,6 +367,7 @@ func (f formModel) values() (string, config.Profile) {
 			LocalRoot:  strings.TrimSpace(f.inputs[1].Value()),
 			RemoteRoot: strings.TrimSpace(f.inputs[2].Value()),
 			Subpaths:   f.subpaths(),
+			Ignore:     f.ignores(),
 		}
 }
 
@@ -354,16 +399,31 @@ func (f formModel) View() string {
 	// Add-subpath button.
 	content.WriteString("\n")
 	label := labelStyle
-	if f.focusField() >= numFixed || f.focusKind() == slotAdd {
+	if (f.focusField() >= numFixed && f.focusField() < numFixed+f.numSubs) || f.focusKind() == slotAdd {
 		label = focusLabelStyle
 	}
 	content.WriteString(label.Render("Subpaths"))
-	for i := numFixed; i < len(f.inputs); i++ {
+	for i := numFixed; i < numFixed+f.numSubs; i++ {
 		content.WriteString("\n")
 		content.WriteString(f.fieldRow(i))
 	}
 	content.WriteString("\n")
 	content.WriteString(f.actionButton(slotAdd, "Add subpath"))
+
+	// Ignored-files section: same shape — a label, one input+Remove row per
+	// pattern, and the Add-ignore button.
+	content.WriteString("\n\n")
+	label = labelStyle
+	if f.focusField() >= numFixed+f.numSubs || f.focusKind() == slotAddIgnore {
+		label = focusLabelStyle
+	}
+	content.WriteString(label.Render("Ignored files"))
+	for i := numFixed + f.numSubs; i < len(f.inputs); i++ {
+		content.WriteString("\n")
+		content.WriteString(f.fieldRow(i))
+	}
+	content.WriteString("\n")
+	content.WriteString(f.actionButton(slotAddIgnore, "Add ignore"))
 
 	// Centered Save / Cancel action row.
 	content.WriteString("\n\n")

@@ -65,6 +65,7 @@ func printStatus(w io.Writer, name string, p config.Profile, st status.ProfileSt
 		_, _ = fmt.Fprintf(w, "  %s\n", t.Label())
 		if t.InSync() {
 			_, _ = fmt.Fprintln(w, "    in sync")
+			printPaths(w, "ignored (never synced)", t.Ignored)
 			continue
 		}
 		printChanges(w, "push (local -> remote)", t.Push)
@@ -72,6 +73,7 @@ func printStatus(w io.Writer, name string, p config.Profile, st status.ProfileSt
 		printPaths(w, "del-local (mirror remote delete)", t.LocalDeletes)
 		printPaths(w, "del-remote (propagate local delete)", t.RemoteDeletes)
 		printPaths(w, "conflicts (changed on both sides)", t.Conflicts)
+		printPaths(w, "ignored (never synced)", t.Ignored)
 	}
 }
 

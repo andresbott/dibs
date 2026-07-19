@@ -138,6 +138,36 @@ func TestActivityStatusLocalDeleteAndConflict(t *testing.T) {
 	}
 }
 
+// TestActivityStatusIgnoredRow: an ignored path renders as its own category —
+// the "ignored" verb with a sideless "-" token — and joins the ←→ filter groups.
+func TestActivityStatusIgnoredRow(t *testing.T) {
+	st := status.ProfileStatus{CheckedOut: true, HasBaseline: true, Targets: []status.TargetStatus{{
+		Push:    []status.Change{{Path: "new.png", Modify: false}},
+		Ignored: []string{".DS_Store"},
+	}}}
+	body := statusBody(st, 40, "")
+	for _, want := range []string{"ignored", ".DS_Store"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("status body missing %q:\n%s", want, body)
+		}
+	}
+	keys := statusOpKeys(st)
+	found := false
+	for _, k := range keys {
+		if k == opKey("ignored", "-") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("statusOpKeys missing the ignored group, got %v", keys)
+	}
+	// Filtering to the ignored group keeps only the ignored row.
+	filtered := statusBody(st, 40, opKey("ignored", "-"))
+	if !strings.Contains(filtered, ".DS_Store") || strings.Contains(filtered, "new.png") {
+		t.Errorf("filtered body should show only the ignored row:\n%s", filtered)
+	}
+}
+
 // TestActivityStatusInSyncPerTarget: an all-in-sync profile lists each target
 // with its own "no changes" line rather than a single global summary.
 func TestActivityStatusInSyncPerTarget(t *testing.T) {

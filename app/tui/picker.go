@@ -11,6 +11,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// openBrowse dispatches the focused field's Browse button: the module-path
+// field browses the rsync daemon (remotepicker.go), the local path fields
+// browse the local filesystem.
+func (f *formModel) openBrowse() tea.Cmd {
+	if f.focusField() == idxModulePath {
+		return f.openRemotePicker()
+	}
+	return f.openPicker()
+}
+
 // openPicker opens the directory browser for the focused path field: an existing
 // value is shown inside its parent with that folder highlighted, else the nearest
 // existing ancestor (or home) is listed.
@@ -111,7 +121,7 @@ func (f formModel) pickerHeight() int {
 // pickerView frames the directory browser as a modal matching the form's width.
 func (f formModel) pickerView() string {
 	title := "Select local root"
-	if f.focusField() == 2 {
+	if f.focusField() == idxRemotePath {
 		title = "Select remote root"
 	}
 	inner := f.modalWidth() - 4 // modal borders (2) + body Padding(0,1) (2)

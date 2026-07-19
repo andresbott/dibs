@@ -49,10 +49,10 @@ func TestFormHasBrowseButtons(t *testing.T) {
 
 func TestFormDownUpColumn0IncludesSave(t *testing.T) {
 	m := openAddForm(t) // Name input (slot 0)
-	// Down descends the left column: Name → Local input → Remote input →
-	// Add subpath → the two default ignore inputs → Add ignore → Save → wrap.
-	// (A fresh add form seeds the default ignore rows, see openForm on "a".)
-	for i, want := range []int{1, 3, 5, 6, 8, 10, 11, 0} {
+	// Down descends the left column: Name → Local input → remote-type selector →
+	// Remote input → Add subpath → the two default ignore inputs → Add ignore →
+	// Save → wrap. (A fresh add form seeds the default ignore rows.)
+	for i, want := range []int{1, 3, 4, 6, 7, 9, 11, 12, 0} {
 		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 		if m.form.focus != want {
 			t.Fatalf("down #%d: focus = %d, want %d", i+1, m.form.focus, want)
@@ -60,8 +60,8 @@ func TestFormDownUpColumn0IncludesSave(t *testing.T) {
 	}
 	// Up from Name wraps to the bottom of the left column (Save).
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})
-	if m.form.focus != 11 {
-		t.Fatalf("up from Name: focus = %d, want 11 (Save)", m.form.focus)
+	if m.form.focus != 12 {
+		t.Fatalf("up from Name: focus = %d, want 12 (Save)", m.form.focus)
 	}
 }
 
@@ -69,16 +69,19 @@ func TestFormDownFromRemoteBrowseFallsToColumn0(t *testing.T) {
 	m := openAddForm(t)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Local input (empty ⇒ cursor at end)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Local Browse
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Remote Browse
-	if m.form.focusKind() != slotButton || m.form.focusField() != 2 {
-		t.Fatalf("setup: want Remote Browse, got slot %d", m.form.focus)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // selector row has no right cell → falls to it
+	if m.form.focusKind() != slotTypeSel {
+		t.Fatalf("setup: down from Local Browse should fall to the type selector, got slot %d", m.form.focus)
 	}
-	// Down from Remote Browse: the Add row below has no right cell, so focus
-	// falls to column 0 (Add subpath); Down then descends the default ignore
-	// rows' inputs, Add ignore, and lands on Save.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Remote input row (col 0)
+	if m.form.focusKind() != slotInput || m.form.focusField() != idxRemotePath {
+		t.Fatalf("setup: want the Remote input, got slot %d", m.form.focus)
+	}
+	// Down then descends column 0: Add subpath, the default ignore rows' inputs,
+	// Add ignore, and lands on Save.
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	if m.form.focusKind() != slotAdd {
-		t.Fatalf("down from Remote Browse should fall to Add subpath, got slot %d", m.form.focus)
+		t.Fatalf("down from the Remote input should reach Add subpath, got slot %d", m.form.focus)
 	}
 	for range 4 { // two ignore inputs, Add ignore, then the action row
 		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
@@ -144,18 +147,22 @@ func TestFormDownUpStaysInButtonColumn(t *testing.T) {
 	m := openAddForm(t)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Local input
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Local Browse button
-	if !m.form.currentIsButton() || m.form.focusField() != 1 {
+	if !m.form.currentIsButton() || m.form.focusField() != idxLocal {
 		t.Fatalf("setup: want Local Browse button, got focus %d", m.form.focus)
 	}
-	// Down from a button stays on the button column → Remote Browse (not the input).
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	if !m.form.currentIsButton() || m.form.focusField() != 2 {
-		t.Fatalf("down from Local Browse should focus Remote Browse, got focus %d (button=%v)", m.form.focus, m.form.currentIsButton())
+	// The selector row below has no button cell, so Down falls to column 0; two
+	// Downs later, Right reaches the Remote row's Browse button.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // type selector (col 0 fallback)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Remote input
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if !m.form.currentIsButton() || m.form.focusField() != idxRemotePath {
+		t.Fatalf("want Remote Browse button, got focus %d (button=%v)", m.form.focus, m.form.currentIsButton())
 	}
-	// Up returns to Local Browse.
+	// Up from Remote Browse: the selector row above has no button cell either,
+	// so focus falls back to column 0 (the selector).
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})
-	if !m.form.currentIsButton() || m.form.focusField() != 1 {
-		t.Fatalf("up from Remote Browse should focus Local Browse, got focus %d (button=%v)", m.form.focus, m.form.currentIsButton())
+	if m.form.focusKind() != slotTypeSel {
+		t.Fatalf("up from Remote Browse should fall to the type selector, got focus %d", m.form.focus)
 	}
 }
 
@@ -219,7 +226,8 @@ func TestSaveButtonSubmits(t *testing.T) {
 	m = typeRunes(t, m, "photos")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // remote-type selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Remote input
 	m = typeRunes(t, m, "/mnt/nas/pics")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
@@ -259,7 +267,8 @@ func TestFormEnterActivatesSave(t *testing.T) {
 	m = typeRunes(t, m, "photos")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // remote-type selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Remote input
 	m = typeRunes(t, m, "/mnt/nas/pics")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -346,6 +355,7 @@ func TestAddProfilePersists(t *testing.T) {
 	m = typeRunes(t, m, "photos")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Local input
 	m = typeRunes(t, m, "/home/me/pics")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → remote-type selector
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Remote input
 	m = typeRunes(t, m, "/mnt/nas/pics")
 	m = tabToKind(t, m, slotSave)
@@ -462,14 +472,14 @@ func TestFormAddSubpathAppendsRow(t *testing.T) {
 	m := openAddForm(t)
 	m = tabToKind(t, m, slotAdd)
 	m = update(t, m, spaceKey)
-	if got := len(m.form.inputs); got != 6 {
-		t.Fatalf("inputs = %d, want 6 (name, roots, one subpath, two default ignores)", got)
+	if got := len(m.form.inputs); got != numFixed+3 {
+		t.Fatalf("inputs = %d, want %d (fixed fields, one subpath, two default ignores)", got, numFixed+3)
 	}
-	if k := m.form.focusKind(); k != slotInput || m.form.focusField() != 3 {
+	if k := m.form.focusKind(); k != slotInput || m.form.focusField() != numFixed {
 		t.Fatalf("focus should land on the new subpath input, got kind %d field %d", k, m.form.focusField())
 	}
 	m = typeRunes(t, m, "docs")
-	if got := m.form.inputs[3].Value(); got != "docs" {
+	if got := m.form.inputs[numFixed].Value(); got != "docs" {
 		t.Fatalf("subpath input = %q, want docs", got)
 	}
 }
@@ -486,10 +496,10 @@ func TestFormRemoveSubpathDeletesRow(t *testing.T) {
 	m.form = newForm("work", cfg.Profiles["work"])
 	m = tabToKind(t, m, slotRemove) // first subpath's Remove button
 	m = update(t, m, spaceKey)
-	if got := len(m.form.inputs); got != 4 {
-		t.Fatalf("inputs = %d, want 4 after removing one of two subpaths", got)
+	if got := len(m.form.inputs); got != numFixed+1 {
+		t.Fatalf("inputs = %d, want %d after removing one of two subpaths", got, numFixed+1)
 	}
-	if got := m.form.inputs[3].Value(); got != "b" {
+	if got := m.form.inputs[numFixed].Value(); got != "b" {
 		t.Fatalf("remaining subpath = %q, want b (first row removed)", got)
 	}
 }
@@ -523,14 +533,14 @@ func TestFormAddIgnoreAppendsRow(t *testing.T) {
 	m := openAddForm(t) // seeded with the two default ignore rows
 	m = tabToKind(t, m, slotAddIgnore)
 	m = update(t, m, spaceKey)
-	if got := len(m.form.inputs); got != 6 {
-		t.Fatalf("inputs = %d, want 6 (name, roots, three ignores)", got)
+	if got := len(m.form.inputs); got != numFixed+3 {
+		t.Fatalf("inputs = %d, want %d (fixed fields, three ignores)", got, numFixed+3)
 	}
-	if k := m.form.focusKind(); k != slotInput || m.form.focusField() != 5 {
+	if k := m.form.focusKind(); k != slotInput || m.form.focusField() != numFixed+2 {
 		t.Fatalf("focus should land on the new ignore input, got kind %d field %d", k, m.form.focusField())
 	}
 	m = typeRunes(t, m, "*.tmp")
-	if got := m.form.inputs[5].Value(); got != "*.tmp" {
+	if got := m.form.inputs[numFixed+2].Value(); got != "*.tmp" {
 		t.Fatalf("ignore input = %q, want *.tmp", got)
 	}
 }
@@ -548,10 +558,10 @@ func TestFormRemoveIgnoreDeletesRow(t *testing.T) {
 	m.form = newForm("work", cfg.Profiles["work"])
 	m = tabToKind(t, m, slotRemove) // first ignore row's Remove button
 	m = update(t, m, spaceKey)
-	if got := len(m.form.inputs); got != 4 {
-		t.Fatalf("inputs = %d, want 4 after removing one of two ignore rows", got)
+	if got := len(m.form.inputs); got != numFixed+1 {
+		t.Fatalf("inputs = %d, want %d after removing one of two ignore rows", got, numFixed+1)
 	}
-	if got := m.form.inputs[3].Value(); got != ".directory" {
+	if got := m.form.inputs[numFixed].Value(); got != ".directory" {
 		t.Fatalf("remaining ignore = %q, want .directory (first row removed)", got)
 	}
 }
@@ -633,7 +643,7 @@ func TestFormSavePersistsEditedSubpaths(t *testing.T) {
 	m := newModel(p, cfg)
 	m.mode = modeForm
 	m.form = newForm("work", cfg.Profiles["work"])
-	m.form.inputs[3].SetValue("a2") // edit the existing subpath
+	m.form.inputs[numFixed].SetValue("a2") // edit the existing subpath
 	m = tabToKind(t, m, slotAdd)
 	m = update(t, m, spaceKey) // add a second row
 	m = typeRunes(t, m, "b/c")
@@ -770,6 +780,7 @@ func TestAddProfileSaveFailureKeepsFormAndEdits(t *testing.T) {
 	m = typeRunes(t, m, "photos")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Local input
 	m = typeRunes(t, m, "/home/me/pics")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → remote-type selector
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Remote input
 	m = typeRunes(t, m, "/mnt/nas/pics")
 	m = tabToKind(t, m, slotSave)
@@ -787,7 +798,7 @@ func TestAddProfileSaveFailureKeepsFormAndEdits(t *testing.T) {
 	if got := m.form.inputs[1].Value(); got != "/home/me/pics" {
 		t.Fatalf("local root input = %q, want it preserved", got)
 	}
-	if got := m.form.inputs[2].Value(); got != "/mnt/nas/pics" {
+	if got := m.form.inputs[idxRemotePath].Value(); got != "/mnt/nas/pics" {
 		t.Fatalf("remote root input = %q, want it preserved", got)
 	}
 	if _, exists := m.cfg.Profiles["photos"]; exists {
@@ -822,5 +833,297 @@ func TestEditRenameSaveFailureRollsBackProfiles(t *testing.T) {
 	}
 	if _, exists := m.cfg.Profiles["new"]; exists {
 		t.Error("new profile should not be committed when save fails")
+	}
+}
+
+// --- remote-type selector & per-kind fields ---
+
+// TestNewFormDecomposesRsyncURL: editing an rsync:// profile opens the form on
+// the rsync kind with the URL decomposed into the connection fields and the
+// password file exposed.
+func TestNewFormDecomposesRsyncURL(t *testing.T) {
+	f := newForm("work", config.Profile{
+		LocalRoot:          "/l",
+		RemoteRoot:         "rsync://alice@nas:874/mod/inner",
+		RsyncdPasswordFile: "/pw",
+	})
+	if f.kind != remoteRsync {
+		t.Fatalf("kind = %d, want remoteRsync", f.kind)
+	}
+	for idx, want := range map[int]string{
+		idxHost: "nas", idxPort: "874", idxUser: "alice",
+		idxModulePath: "mod/inner", idxPassFile: "/pw",
+	} {
+		if got := f.inputs[idx].Value(); got != want {
+			t.Errorf("input %d = %q, want %q", idx, got, want)
+		}
+	}
+}
+
+// TestNewFormDecomposesSSHURL: an ssh:// profile opens on the ssh kind with the
+// raw URL in the URL field and the identity file exposed.
+func TestNewFormDecomposesSSHURL(t *testing.T) {
+	f := newForm("work", config.Profile{
+		LocalRoot:       "/l",
+		RemoteRoot:      "ssh://bob@nas/srv/data",
+		SSHIdentityFile: "~/.ssh/id",
+	})
+	if f.kind != remoteSSH {
+		t.Fatalf("kind = %d, want remoteSSH", f.kind)
+	}
+	if got := f.inputs[idxSSHURL].Value(); got != "ssh://bob@nas/srv/data" {
+		t.Errorf("ssh url input = %q", got)
+	}
+	if got := f.inputs[idxSSHIdentity].Value(); got != "~/.ssh/id" {
+		t.Errorf("identity input = %q", got)
+	}
+}
+
+// TestNewFormPlainPathIsLocalKind: a plain-path profile opens on the Local kind.
+func TestNewFormPlainPathIsLocalKind(t *testing.T) {
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/mnt/nas"})
+	if f.kind != remoteLocal {
+		t.Fatalf("kind = %d, want remoteLocal", f.kind)
+	}
+	if got := f.inputs[idxRemotePath].Value(); got != "/mnt/nas" {
+		t.Errorf("remote path input = %q", got)
+	}
+}
+
+// TestNewFormMalformedRsyncURLKeepsValue: a malformed rsync:// value must not
+// crash or be discarded — it opens on the rsync kind with the raw value in the
+// module-path field, and Save re-validates.
+func TestNewFormMalformedRsyncURLKeepsValue(t *testing.T) {
+	raw := "rsync://nas:bad-port/mod"
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: raw})
+	if f.kind != remoteRsync {
+		t.Fatalf("kind = %d, want remoteRsync", f.kind)
+	}
+	if got := f.inputs[idxModulePath].Value(); got != raw {
+		t.Errorf("module-path input = %q, want the raw value %q preserved", got, raw)
+	}
+}
+
+// tabToTypeSel Tabs until the remote-type selector has focus.
+func tabToTypeSel(t *testing.T, m model) model {
+	t.Helper()
+	for i := 0; i <= len(m.form.slots()); i++ {
+		if m.form.focusKind() == slotTypeSel {
+			return m
+		}
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	}
+	t.Fatal("never reached the type selector via Tab")
+	return m
+}
+
+// TestTypeSelectorCyclesKinds: right/left on the selector step the kind
+// (wrapping), space cycles forward, and the exposed remote fields follow.
+func TestTypeSelectorCyclesKinds(t *testing.T) {
+	m := tabToTypeSel(t, openAddForm(t))
+	if m.form.kind != remoteLocal {
+		t.Fatalf("fresh form kind = %d, want remoteLocal", m.form.kind)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.form.kind != remoteRsync {
+		t.Fatalf("right: kind = %d, want remoteRsync", m.form.kind)
+	}
+	if got := len(m.form.remoteFields()); got != 5 {
+		t.Fatalf("rsync kind should expose 5 fields, got %d", got)
+	}
+	m = update(t, m, spaceKey)
+	if m.form.kind != remoteSSH {
+		t.Fatalf("space: kind = %d, want remoteSSH", m.form.kind)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // wraps
+	if m.form.kind != remoteLocal {
+		t.Fatalf("right from ssh: kind = %d, want remoteLocal (wrap)", m.form.kind)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft}) // wraps back
+	if m.form.kind != remoteSSH {
+		t.Fatalf("left from Local: kind = %d, want remoteSSH (wrap)", m.form.kind)
+	}
+	if m.form.focusKind() != slotTypeSel {
+		t.Fatal("cycling the kind must keep focus on the selector")
+	}
+}
+
+// TestTypeSwitchPreservesTypedValues: values typed under one kind survive a
+// switch away and back — the inputs always exist, only their exposure changes.
+func TestTypeSwitchPreservesTypedValues(t *testing.T) {
+	m := tabToTypeSel(t, openAddForm(t))
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // → Host input
+	m = typeRunes(t, m, "nas")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp}) // back to the selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // ssh → Local
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync again
+	if got := m.form.inputs[idxHost].Value(); got != "nas" {
+		t.Fatalf("host input = %q, want nas preserved across kind switches", got)
+	}
+}
+
+// TestValuesComposesRsyncURL: values() under the rsync kind composes the
+// rsync:// URL from the connection fields and carries the password file, and
+// leaves the other kinds' auth keys empty.
+func TestValuesComposesRsyncURL(t *testing.T) {
+	f := newForm("", config.Profile{})
+	f.kind = remoteRsync
+	f.inputs[idxHost].SetValue("nas")
+	f.inputs[idxPort].SetValue("874")
+	f.inputs[idxUser].SetValue("alice")
+	f.inputs[idxModulePath].SetValue("mod/inner")
+	f.inputs[idxPassFile].SetValue("/pw")
+	f.inputs[idxSSHIdentity].SetValue("stale") // typed under another kind: must not leak
+	_, p := f.values()
+	if p.RemoteRoot != "rsync://alice@nas:874/mod/inner" {
+		t.Errorf("RemoteRoot = %q", p.RemoteRoot)
+	}
+	if p.RsyncdPasswordFile != "/pw" {
+		t.Errorf("RsyncdPasswordFile = %q", p.RsyncdPasswordFile)
+	}
+	if p.SSHIdentityFile != "" {
+		t.Errorf("SSHIdentityFile = %q, want empty (ssh not selected)", p.SSHIdentityFile)
+	}
+}
+
+// TestValuesComposesSSH: values() under the ssh kind reads the URL and identity
+// file, leaving the rsync password file empty.
+func TestValuesComposesSSH(t *testing.T) {
+	f := newForm("", config.Profile{})
+	f.kind = remoteSSH
+	f.inputs[idxSSHURL].SetValue("ssh://nas/srv/data")
+	f.inputs[idxSSHIdentity].SetValue("~/.ssh/id")
+	f.inputs[idxPassFile].SetValue("stale")
+	_, p := f.values()
+	if p.RemoteRoot != "ssh://nas/srv/data" {
+		t.Errorf("RemoteRoot = %q", p.RemoteRoot)
+	}
+	if p.SSHIdentityFile != "~/.ssh/id" {
+		t.Errorf("SSHIdentityFile = %q", p.SSHIdentityFile)
+	}
+	if p.RsyncdPasswordFile != "" {
+		t.Errorf("RsyncdPasswordFile = %q, want empty (rsync not selected)", p.RsyncdPasswordFile)
+	}
+}
+
+// TestSaveRsyncProfilePersists: filling the rsync fields through the UI and
+// saving persists the composed rsync:// remote root and the password file.
+func TestSaveRsyncProfilePersists(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	m := newModel(p, &config.Config{Profiles: map[string]config.Profile{}})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = typeRunes(t, m, "photos")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = typeRunes(t, m, "/home/me/pics")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Host
+	m = typeRunes(t, m, "nas")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Port (left default)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // User
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Password file
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Module/path
+	m = typeRunes(t, m, "mod/photos")
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+
+	if m.mode != modeMain {
+		t.Fatalf("want modeMain after save, got %d (err %q)", m.mode, m.form.err)
+	}
+	saved, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.Profiles["photos"].RemoteRoot; got != "rsync://nas/mod/photos" {
+		t.Fatalf("saved remote root = %q, want rsync://nas/mod/photos", got)
+	}
+}
+
+// TestSaveRsyncMissingHostBlocked: saving the rsync kind without a host keeps
+// the form open with a validation error (from ValidateRemoteRoot on the
+// composed URL).
+func TestSaveRsyncMissingHostBlocked(t *testing.T) {
+	pth := filepath.Join(t.TempDir(), "config.yaml")
+	m := newModel(pth, &config.Config{Profiles: map[string]config.Profile{}})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = typeRunes(t, m, "photos")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = typeRunes(t, m, "/home/me/pics")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync (host left empty)
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+	if m.mode != modeForm {
+		t.Fatal("missing host should keep the form open")
+	}
+	if m.form.err == "" {
+		t.Fatal("expected a validation error message")
+	}
+}
+
+// TestEditRsyncProfileRoundTrips: opening an rsync profile and saving untouched
+// round-trips the exact same remote root — decompose and compose are inverses.
+func TestEditRsyncProfileRoundTrips(t *testing.T) {
+	pth := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work": {LocalRoot: "/l", RemoteRoot: "rsync://alice@nas:874/mod/inner", RsyncdPasswordFile: "/pw"},
+	}}
+	if err := config.Save(pth, cfg); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(pth, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+	if m.mode != modeMain {
+		t.Fatalf("want modeMain after save, got %d (err %q)", m.mode, m.form.err)
+	}
+	saved, err := config.Load(pth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := saved.Profiles["work"]
+	if got.RemoteRoot != "rsync://alice@nas:874/mod/inner" {
+		t.Fatalf("remote root = %q, want it unchanged", got.RemoteRoot)
+	}
+	if got.RsyncdPasswordFile != "/pw" {
+		t.Fatalf("password file = %q, want /pw", got.RsyncdPasswordFile)
+	}
+}
+
+// TestFormViewShowsTypeSelector: the form renders the radio row with the three
+// kind options and the selected one marked.
+func TestFormViewShowsTypeSelector(t *testing.T) {
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "rsync://nas/mod"})
+	f.setWidth(80)
+	view := f.View()
+	for _, want := range []string{"Remote type", "Local", "rsync", "ssh", "(•)"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("form view missing %q:\n%s", want, view)
+		}
+	}
+	// The rsync kind's connection fields are visible; the Local remote-root
+	// label ("Remote root" exactly) is not.
+	for _, want := range []string{"Host", "Module / path", "Password file"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("rsync kind should show %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestFormViewGroupDividers: the form's groups after Name — root dirs,
+// subpaths, ignored files — each open with a titled dotted divider
+// ("┄┄ Title ┄┄┄…"), distinct from the fields' solid underlines.
+func TestFormViewGroupDividers(t *testing.T) {
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"})
+	f.setWidth(80)
+	view := f.View()
+	for _, title := range []string{"Root dirs", "Subpaths", "Ignored files"} {
+		if n := strings.Count(view, "┄┄ "+title); n != 1 {
+			t.Fatalf("want the %q section header exactly once, got %d:\n%s", title, n, view)
+		}
 	}
 }

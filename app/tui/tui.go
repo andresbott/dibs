@@ -173,6 +173,10 @@ func (m *model) resize(ws tea.WindowSizeMsg) {
 	if m.form.browsing {
 		m.form.picker.setHeight(m.form.pickerHeight())
 	}
+	if m.form.browsingRemote {
+		m.form.remote.height = m.form.pickerHeight()
+		m.form.remote.ensureVisible()
+	}
 	m.settings.setWidth(ws.Width)
 }
 
@@ -327,6 +331,7 @@ func (m model) openForm(origName string, p config.Profile) (tea.Model, tea.Cmd) 
 	m.form = newForm(origName, p)
 	m.form.setWidth(m.width)
 	m.form.termHeight = m.height
+	m.form.rsyncBin = m.cfg.RsyncPath
 	m.mode = modeForm
 	return m, textinput.Blink
 }
@@ -858,6 +863,16 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form, cmd = m.form.updatePicker(msg)
 		return m, cmd
 	}
+	if m.form.browsingRemote {
+		var cmd tea.Cmd
+		m.form, cmd = m.form.updateRemotePicker(msg)
+		return m, cmd
+	}
+	if res, ok := msg.(remoteListResultMsg); ok {
+		// A listing that finished after the browser closed: seq-dropped.
+		m.form.applyRemoteListResult(res)
+		return m, nil
+	}
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		var cmd tea.Cmd
@@ -871,44 +886,41 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.mode = modeMain
 		return m, nil
-	case "enter":
-		switch m.form.focusKind() {
-		case slotButton:
-			return m, m.form.openPicker()
-		case slotRemove:
-			return m, m.form.removeSubpath(m.form.focusField())
-		case slotAdd:
-			return m, m.form.addSubpath()
-		case slotAddIgnore:
-			return m, m.form.addIgnore()
-		case slotSave:
-			return m.submitForm()
-		case slotCancel:
-			m.mode = modeMain
-			return m, nil
+	case "enter", " ":
+		if mm, cmd, ok := m.activateFormSlot(); ok {
+			return mm, cmd
 		}
-		// on a text input: enter does nothing
-	case " ":
-		switch m.form.focusKind() {
-		case slotButton:
-			return m, m.form.openPicker()
-		case slotRemove:
-			return m, m.form.removeSubpath(m.form.focusField())
-		case slotAdd:
-			return m, m.form.addSubpath()
-		case slotAddIgnore:
-			return m, m.form.addIgnore()
-		case slotSave:
-			return m.submitForm()
-		case slotCancel:
-			m.mode = modeMain
-			return m, nil
-		}
-		// on a text input: fall through to type the space
+		// on a text input: enter does nothing, space falls through to be typed
 	}
 	var cmd tea.Cmd
 	m.form, cmd = m.form.updateInputs(msg)
 	return m, cmd
+}
+
+// activateFormSlot performs the focused slot's action for enter/space. ok is
+// false on a text input, where neither key activates anything (enter is inert,
+// space is typed).
+func (m model) activateFormSlot() (tea.Model, tea.Cmd, bool) {
+	switch m.form.focusKind() {
+	case slotButton:
+		return m, m.form.openBrowse(), true
+	case slotTypeSel:
+		m.form.cycleKind(1)
+		return m, nil, true
+	case slotRemove:
+		return m, m.form.removeSubpath(m.form.focusField()), true
+	case slotAdd:
+		return m, m.form.addSubpath(), true
+	case slotAddIgnore:
+		return m, m.form.addIgnore(), true
+	case slotSave:
+		mm, cmd := m.submitForm()
+		return mm, cmd, true
+	case slotCancel:
+		m.mode = modeMain
+		return m, nil, true
+	}
+	return m, nil, false
 }
 
 func (m model) submitForm() (tea.Model, tea.Cmd) {

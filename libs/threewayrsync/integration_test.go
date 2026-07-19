@@ -743,3 +743,149 @@ func TestIntegrationFileHelpers(t *testing.T) {
 		t.Fatalf("fetch after delete: found=%v err=%v", found, err)
 	}
 }
+
+// startMultiModuleDaemon launches a loopback rsync daemon exporting two modules — "data"
+// (with a comment) and "backup" — plus an auth-required module "secret" whose only valid
+// credential is user "alice" with password "s3cret". It returns the port and the two
+// module directories.
+func startMultiModuleDaemon(t *testing.T) (port int, dataDir, backupDir string) {
+	t.Helper()
+	lst, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port = lst.Addr().(*net.TCPAddr).Port
+	_ = lst.Close()
+
+	root := t.TempDir()
+	dataDir = filepath.Join(root, "data")
+	backupDir = filepath.Join(root, "backup")
+	secretDir := filepath.Join(root, "secret")
+	for _, d := range []string{dataDir, backupDir, secretDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := t.TempDir()
+	secretsFile := filepath.Join(dir, "rsyncd.secrets")
+	writeFile(t, secretsFile, "alice:s3cret\n")
+	if err := os.Chmod(secretsFile, 0o600); err != nil { // rsyncd refuses world-readable secrets
+		t.Fatal(err)
+	}
+	conf := filepath.Join(dir, "rsyncd.conf")
+	writeFile(t, conf, fmt.Sprintf(
+		"use chroot = false\npid file = %s/rsyncd.pid\nlog file = %s/rsyncd.log\n\n"+
+			"[data]\n  path = %s\n  comment = first module\n  read only = false\n\n"+
+			"[backup]\n  path = %s\n\n"+
+			"[secret]\n  path = %s\n  auth users = alice\n  secrets file = %s\n",
+		dir, dir, dataDir, backupDir, secretDir, secretsFile))
+
+	cmd := exec.Command("rsync", "--daemon", "--no-detach", "--config="+conf, "--port="+fmt.Sprint(port))
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 200*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return port, dataDir, backupDir
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("rsync daemon did not come up on port %d", port)
+	return 0, "", ""
+}
+
+// TestIntegrationListModules pins the real module-list output format the unit fixtures
+// assume: one "name\tcomment" line per module, name padded, MOTD-free by default.
+func TestIntegrationListModules(t *testing.T) {
+	requireRsync(t)
+	port, _, _ := startMultiModuleDaemon(t)
+	s := tw.New(tw.FileStore{Path: filepath.Join(t.TempDir(), "base.json")})
+
+	mods, err := s.ListModules(context.Background(), tw.Daemon{Host: "127.0.0.1", Port: port})
+	if err != nil {
+		t.Fatalf("ListModules: %v", err)
+	}
+	got := map[string]string{}
+	for _, m := range mods {
+		got[m.Name] = m.Comment
+	}
+	if got["data"] != "first module" {
+		t.Errorf(`module "data" comment = %q, want "first module" (all: %+v)`, got["data"], mods)
+	}
+	if _, ok := got["backup"]; !ok {
+		t.Errorf(`module "backup" missing (all: %+v)`, mods)
+	}
+	if _, ok := got["secret"]; !ok {
+		t.Errorf(`module "secret" missing (all: %+v)`, mods)
+	}
+}
+
+// TestIntegrationListDirs pins the real --list-only output format: directories only,
+// "." skipped, names with spaces intact, nested paths listable, missing paths erroring.
+func TestIntegrationListDirs(t *testing.T) {
+	requireRsync(t)
+	port, dataDir, _ := startMultiModuleDaemon(t)
+	for _, d := range []string{"alpha", "beta/nested", "dir with space"} {
+		if err := os.MkdirAll(filepath.Join(dataDir, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(dataDir, "file.txt"), "F")
+	s := tw.New(tw.FileStore{Path: filepath.Join(t.TempDir(), "base.json")})
+	d := tw.Daemon{Host: "127.0.0.1", Port: port, Module: "data"}
+	ctx := context.Background()
+
+	root, err := s.ListDirs(ctx, d, "")
+	if err != nil {
+		t.Fatalf("ListDirs(root): %v", err)
+	}
+	want := []string{"alpha", "beta", "dir with space"}
+	if !slices.Equal(root, want) {
+		t.Errorf("ListDirs(root) = %v, want %v", root, want)
+	}
+
+	sub, err := s.ListDirs(ctx, d, "beta")
+	if err != nil {
+		t.Fatalf("ListDirs(beta): %v", err)
+	}
+	if !slices.Equal(sub, []string{"nested"}) {
+		t.Errorf("ListDirs(beta) = %v, want [nested]", sub)
+	}
+
+	if _, err := s.ListDirs(ctx, d, "nope"); err == nil {
+		t.Error("ListDirs on a missing path must error")
+	}
+}
+
+// TestIntegrationListDirsAuthModule pins the auth failure shape the browser surfaces:
+// listing inside an auth-required module without credentials fails with an rsync error
+// (@ERROR: auth failed), while the right password file succeeds.
+func TestIntegrationListDirsAuthModule(t *testing.T) {
+	requireRsync(t)
+	port, _, _ := startMultiModuleDaemon(t)
+	s := tw.New(tw.FileStore{Path: filepath.Join(t.TempDir(), "base.json")})
+	ctx := context.Background()
+
+	// No credentials: the daemon refuses.
+	_, err := s.ListDirs(ctx, tw.Daemon{Host: "127.0.0.1", Port: port, Module: "secret"}, "")
+	if err == nil {
+		t.Fatal("ListDirs on an auth module without credentials must error")
+	}
+
+	// The right user + password file succeeds.
+	pw := filepath.Join(t.TempDir(), "pw")
+	writeFile(t, pw, "s3cret\n")
+	if err := os.Chmod(pw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ListDirs(ctx, tw.Daemon{Host: "127.0.0.1", Port: port, Module: "secret", User: "alice", PasswordFile: pw}, ""); err != nil {
+		t.Fatalf("ListDirs with valid credentials: %v", err)
+	}
+}

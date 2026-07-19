@@ -50,11 +50,11 @@ func renderProfileFooter(width int, activityFocused, running bool) string {
 	switch {
 	case running:
 		parts = []string{
-			hint("↑↓/PgUp/PgDn", "Scroll"), hint("esc", "Cancel"),
+			hint("↑↓/⇧↑↓/PgUp/PgDn", "Scroll"), hint("←→", "Filter"), hint("esc", "Cancel"),
 		}
 	case activityFocused:
 		parts = []string{
-			hint("↑↓/PgUp/PgDn", "Scroll"), hint("tab", "Actions"), hint("esc", "Back"),
+			hint("↑↓/⇧↑↓/PgUp/PgDn", "Scroll"), hint("←→", "Filter"), hint("tab", "Actions"), hint("esc", "Back"),
 		}
 	default:
 		parts = []string{

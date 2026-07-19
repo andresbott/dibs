@@ -454,6 +454,7 @@ func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 	m.profile.applied = nil
 	m.profile.canceled = false
 	m.profile.statusScroll = 0
+	m.profile.opFilter = ""
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.actionSeq++
@@ -481,6 +482,7 @@ func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 	m.profile.applied = nil
 	m.profile.canceled = false
 	m.profile.statusScroll = 0
+	m.profile.opFilter = ""
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.actionSeq++
@@ -504,6 +506,7 @@ func (m model) syncConfirmed() (tea.Model, tea.Cmd) {
 	m.profile.applied = nil
 	m.profile.canceled = false
 	m.profile.statusScroll = 0
+	m.profile.opFilter = ""
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.actionSeq++

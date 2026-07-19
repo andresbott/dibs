@@ -18,3 +18,11 @@ orchestration (see [architecture.md](architecture.md)).
   `OnApply` events the CLI prints.
 - The two-tier status display: sanity marks (`✓`/`✗`/`…`/`?`) appear in Details
   automatically; the heavy rsync Status runs only on explicit action.
+- **The profile form's remote location is a type selector** (Local / rsync / ssh) over
+  one stable set of inputs (`form.go` `idx*` constants) — all inputs always exist so
+  switching type never loses typed values; `values()` reads only the selected kind's
+  fields and composes/decomposes `RemoteRoot` via `config.SplitRemoteRoot` /
+  `config.BuildRsyncRemoteRoot`. The rsync kind's Browse opens the async daemon
+  browser (`remotepicker.go`: modules → directories, seq-stamped results, injectable
+  `moduleLister`/`dirLister` seams); the local `dirPicker` stays synchronous
+  (`os.ReadDir` needs no command).

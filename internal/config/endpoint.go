@@ -108,6 +108,55 @@ func (p Profile) daemonEndpoint() (threewayrsync.Endpoint, error) {
 	}, nil
 }
 
+// RemoteParts is a remote root decomposed for form editing: the kind ("local", "ssh",
+// "rsync") plus the fields that kind carries. For kind "rsync", ModulePath is
+// "module[/path]"; for "ssh", Path is the absolute remote path; for "local", Path is the
+// raw value.
+type RemoteParts struct {
+	Kind       string
+	User, Host string
+	Port       int
+	ModulePath string // rsync: "module[/path]"
+	Path       string // ssh: "/abs/path"; local: the raw value
+}
+
+// SplitRemoteRoot decomposes a remote root into its editable parts — the inverse of
+// BuildRsyncRemoteRoot for the rsync kind. A malformed URL returns an error along with
+// the detected kind so a caller can still route the raw value to the right field.
+func SplitRemoteRoot(root string) (RemoteParts, error) {
+	switch {
+	case strings.HasPrefix(root, "rsync://"):
+		host, port, user, path, err := parseRemoteURL(root)
+		if err != nil {
+			return RemoteParts{Kind: "rsync"}, err
+		}
+		return RemoteParts{Kind: "rsync", User: user, Host: host, Port: port, ModulePath: path}, nil
+	case strings.HasPrefix(root, "ssh://"):
+		host, port, user, path, err := parseRemoteURL(root)
+		if err != nil {
+			return RemoteParts{Kind: "ssh"}, err
+		}
+		return RemoteParts{Kind: "ssh", User: user, Host: host, Port: port, Path: "/" + path}, nil
+	default:
+		return RemoteParts{Kind: "local", Path: root}, nil
+	}
+}
+
+// BuildRsyncRemoteRoot renders "rsync://[user@]host[:port]/modulePath", omitting the
+// user when empty and the port when blank. port is a raw string (a form field value):
+// a non-numeric port composes a URL that ValidateRemoteRoot rejects with its clear
+// "bad port" message, so no separate validation path is needed.
+func BuildRsyncRemoteRoot(user, host, port, modulePath string) string {
+	h := strings.TrimSpace(host)
+	if u := strings.TrimSpace(user); u != "" {
+		h = u + "@" + h
+	}
+	if p := strings.TrimSpace(port); p != "" {
+		h += ":" + p
+	}
+	return "rsync://" + h + "/" + strings.Trim(strings.TrimSpace(modulePath), "/")
+}
+
 // ValidateRemoteRoot reports whether a remote root is usable: a plain absolute path (after
 // ~ and env expansion), or a well-formed ssh:// or rsync:// endpoint URL.
 func ValidateRemoteRoot(root string) error {

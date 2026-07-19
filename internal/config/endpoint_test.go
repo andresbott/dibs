@@ -101,3 +101,77 @@ func TestValidateRemoteRoot(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitRemoteRoot(t *testing.T) {
+	cases := map[string]RemoteParts{
+		"/mnt/share":                      {Kind: "local", Path: "/mnt/share"},
+		"~/share":                         {Kind: "local", Path: "~/share"},
+		"ssh://nas/srv/data":              {Kind: "ssh", Host: "nas", Path: "/srv/data"},
+		"ssh://bob@nas:2222/srv/data":     {Kind: "ssh", User: "bob", Host: "nas", Port: 2222, Path: "/srv/data"},
+		"rsync://nas/mod":                 {Kind: "rsync", Host: "nas", ModulePath: "mod"},
+		"rsync://alice@nas:874/mod/inner": {Kind: "rsync", User: "alice", Host: "nas", Port: 874, ModulePath: "mod/inner"},
+	}
+	for root, want := range cases {
+		got, err := SplitRemoteRoot(root)
+		if err != nil {
+			t.Errorf("SplitRemoteRoot(%q) err = %v", root, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("SplitRemoteRoot(%q) = %+v, want %+v", root, got, want)
+		}
+	}
+}
+
+func TestSplitRemoteRootMalformedKeepsKind(t *testing.T) {
+	cases := map[string]string{
+		"rsync://nas:bad-port/mod": "rsync",
+		"ssh://:2222/path":         "ssh",
+	}
+	for root, kind := range cases {
+		got, err := SplitRemoteRoot(root)
+		if err == nil {
+			t.Errorf("SplitRemoteRoot(%q) should fail", root)
+		}
+		if got.Kind != kind {
+			t.Errorf("SplitRemoteRoot(%q).Kind = %q, want %q (so the form can still route the raw value)", root, got.Kind, kind)
+		}
+	}
+}
+
+func TestBuildRsyncRemoteRoot(t *testing.T) {
+	cases := []struct {
+		user, host, port, modulePath, want string
+	}{
+		{"", "nas", "", "mod", "rsync://nas/mod"},
+		{"alice", "nas", "874", "mod/inner", "rsync://alice@nas:874/mod/inner"},
+		{" alice ", " nas ", " 874 ", " /mod/inner/ ", "rsync://alice@nas:874/mod/inner"},
+	}
+	for _, c := range cases {
+		if got := BuildRsyncRemoteRoot(c.user, c.host, c.port, c.modulePath); got != c.want {
+			t.Errorf("BuildRsyncRemoteRoot(%q,%q,%q,%q) = %q, want %q", c.user, c.host, c.port, c.modulePath, got, c.want)
+		}
+	}
+}
+
+func TestBuildRsyncRemoteRootRoundTrip(t *testing.T) {
+	root := BuildRsyncRemoteRoot("alice", "nas", "874", "mod/inner")
+	if err := ValidateRemoteRoot(root); err != nil {
+		t.Errorf("ValidateRemoteRoot(%q) = %v", root, err)
+	}
+	got, err := SplitRemoteRoot(root)
+	if err != nil {
+		t.Fatalf("SplitRemoteRoot(%q) err = %v", root, err)
+	}
+	want := RemoteParts{Kind: "rsync", User: "alice", Host: "nas", Port: 874, ModulePath: "mod/inner"}
+	if got != want {
+		t.Errorf("round trip = %+v, want %+v", got, want)
+	}
+}
+
+func TestBuildRsyncRemoteRootBadPortRejected(t *testing.T) {
+	root := BuildRsyncRemoteRoot("", "nas", "eight", "mod")
+	if err := ValidateRemoteRoot(root); err == nil {
+		t.Errorf("ValidateRemoteRoot(%q) should fail on the non-numeric port", root)
+	}
+}

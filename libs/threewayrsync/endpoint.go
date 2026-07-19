@@ -42,20 +42,26 @@ type Endpoint struct {
 // rsync daemon) rather than the local filesystem.
 func (e Endpoint) remote() bool { return e.SSH != nil || e.Daemon != nil }
 
+// rootURL returns the daemon's module-less root URL, "rsync://[user@]host[:port]/" —
+// the address whose listing is the daemon's module list.
+func (d Daemon) rootURL() string {
+	host := d.Host
+	if d.User != "" {
+		host = d.User + "@" + host
+	}
+	if d.Port != 0 {
+		host += ":" + strconv.Itoa(d.Port)
+	}
+	return "rsync://" + host + "/"
+}
+
 // render returns the rsync-syntax location: a plain path locally, "[user@]host:path" for
 // an ssh target, or an "rsync://[user@]host[:port]/module[/path]" URL for a daemon target
 // (the URL form carries a non-default port without extra flags).
 func (e Endpoint) render() string {
 	if e.Daemon != nil {
 		d := e.Daemon
-		host := d.Host
-		if d.User != "" {
-			host = d.User + "@" + host
-		}
-		if d.Port != 0 {
-			host += ":" + strconv.Itoa(d.Port)
-		}
-		loc := "rsync://" + host + "/" + d.Module
+		loc := d.rootURL() + d.Module
 		if p := strings.Trim(e.Path, "/"); p != "" {
 			loc += "/" + p
 		}
@@ -124,13 +130,20 @@ func validate(local, remote Endpoint) error {
 // with "-" becomes an option, whitespace or "@"/":"/"/" would split or re-route the
 // rendered "rsync://user@host:port/module" URL.
 func validateDaemon(d *Daemon) error {
+	return validateDaemonFields(d, true)
+}
+
+// validateDaemonFields is validateDaemon with the module requirement optional: listing a
+// daemon's modules addresses the daemon root, where no module exists yet. The injection
+// guards on the other fields apply either way.
+func validateDaemonFields(d *Daemon, requireModule bool) error {
 	if d == nil {
 		return nil
 	}
 	if strings.TrimSpace(d.Host) == "" {
 		return errors.New("daemon host is required")
 	}
-	if strings.TrimSpace(d.Module) == "" {
+	if requireModule && strings.TrimSpace(d.Module) == "" {
 		return errors.New("daemon module is required")
 	}
 	for name, v := range map[string]string{"host": d.Host, "user": d.User, "module": d.Module, "password file": d.PasswordFile} {

@@ -41,6 +41,27 @@ func buildListArgs(src Endpoint, emptyDest string, exclude, scope []string) []st
 	return args
 }
 
+// listConnectTimeout bounds the daemon TCP connect for the browse listings
+// (--contimeout, supported by the GNU rsync >= 3.1 CheckBinary requires) so an
+// unreachable host fails in seconds instead of hanging the browser.
+const listConnectTimeout = "--contimeout=10"
+
+// buildModuleListArgs assembles the rsync argument list for listing a daemon's modules:
+// a bare module-less root URL makes the daemon print its module list. No password flag —
+// daemon auth is per-module, the module listing itself is unauthenticated.
+func buildModuleListArgs(d Daemon) []string {
+	return []string{listConnectTimeout, d.rootURL()}
+}
+
+// buildDirListArgs assembles the rsync argument list for listing the entries at path
+// (relative, "" = module root) inside d.Module via --list-only. The trailing slash lists
+// the directory's contents rather than the directory itself.
+func buildDirListArgs(d Daemon, path string) []string {
+	args := []string{"--list-only", listConnectTimeout}
+	args = append(args, endpointArgs(Endpoint{Daemon: &d})...)
+	return append(args, withTrailingSlash(Endpoint{Path: path, Daemon: &d}.render()))
+}
+
 // buildTransferArgs assembles the rsync argument list for a real transfer from src to dst.
 // --partial lets a canceled transfer resume; --times equalizes mtime so a re-listing sees
 // the two sides as equal. No --recursive: every transfer is driven by an explicit

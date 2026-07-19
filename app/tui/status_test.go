@@ -95,7 +95,7 @@ func TestActivityShowsStatusResult(t *testing.T) {
 func TestActivityStatusNoProfileName(t *testing.T) {
 	body := statusBody(status.ProfileStatus{CheckedOut: true, HasBaseline: true, Targets: []status.TargetStatus{{
 		Push: []status.Change{{Path: "notes.txt", Modify: true}},
-	}}}, 40)
+	}}}, 40, "")
 	if strings.Contains(body, "alpha") {
 		t.Errorf("status body should not contain the profile name:\n%s", body)
 	}
@@ -109,7 +109,7 @@ func TestActivityStatusVerbAndSide(t *testing.T) {
 		Push:          []status.Change{{Path: "new.png", Modify: false}},
 		Pull:          []status.Change{{Path: "cover.jpg", Modify: true}},
 		RemoteDeletes: []string{"gone.png"},
-	}}}, 40)
+	}}}, 40, "")
 	for _, want := range []string{
 		"add", "→ remote", "new.png",
 		"delete", "gone.png",
@@ -127,7 +127,7 @@ func TestActivityStatusLocalDeleteAndConflict(t *testing.T) {
 	body := statusBody(status.ProfileStatus{CheckedOut: true, HasBaseline: true, Targets: []status.TargetStatus{{
 		LocalDeletes: []string{"old.txt"},
 		Conflicts:    []string{"clash.txt"},
-	}}}, 40)
+	}}}, 40, "")
 	for _, want := range []string{
 		"delete", "→ local", "old.txt",
 		"conflict", "both", "clash.txt",
@@ -144,7 +144,7 @@ func TestActivityStatusInSyncPerTarget(t *testing.T) {
 	body := statusBody(status.ProfileStatus{CheckedOut: true, HasBaseline: true, Targets: []status.TargetStatus{
 		{Subpath: "albums"},
 		{Subpath: "stems"},
-	}}, 40)
+	}}, 40, "")
 	if c := strings.Count(body, "no changes"); c != 2 {
 		t.Errorf("want a 'no changes' line per in-sync target, got %d:\n%s", c, body)
 	}
@@ -161,7 +161,7 @@ func TestActivityStatusDivider(t *testing.T) {
 	body := statusBody(status.ProfileStatus{CheckedOut: true, HasBaseline: true, Targets: []status.TargetStatus{
 		{Subpath: "a", Push: []status.Change{{Path: "x"}}},
 		{Subpath: "b", Push: []status.Change{{Path: "y"}}},
-	}}, 40)
+	}}, 40, "")
 	if n := strings.Count(body, "───"); n < 1 {
 		t.Errorf("two targets should be divided by a rule:\n%s", body)
 	}
@@ -173,7 +173,7 @@ func TestActivityStatusDivider(t *testing.T) {
 // TestActivityStatusNoBaseline: checked out without a local baseline is called
 // out rather than shown as a change list.
 func TestActivityStatusNoBaseline(t *testing.T) {
-	body := statusBody(status.ProfileStatus{CheckedOut: true, HasBaseline: false}, 40)
+	body := statusBody(status.ProfileStatus{CheckedOut: true, HasBaseline: false}, 40, "")
 	if !strings.Contains(body, "no local baseline") {
 		t.Errorf("want a no-baseline note, got %q", body)
 	}
@@ -269,6 +269,163 @@ func TestActivityStatusScrolls(t *testing.T) {
 	}
 	if v := m.View(); !strings.Contains(v, "file00.txt") {
 		t.Errorf("back at the top the head should be visible:\n%s", v)
+	}
+}
+
+// TestActivityShiftArrowsFastScroll: with the Activity panel focused,
+// shift+↓/↑ jump ten lines at a time instead of one.
+func TestActivityShiftArrowsFastScroll(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.result = manyChangesResult(60)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // focus Activity
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyShiftDown})
+	if m.profile.statusScroll != 10 {
+		t.Errorf("shift+Down should scroll ten lines, got %d", m.profile.statusScroll)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.profile.statusScroll != 11 {
+		t.Errorf("Down after shift+Down should be at 11, got %d", m.profile.statusScroll)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyShiftUp})
+	if m.profile.statusScroll != 1 {
+		t.Errorf("shift+Up should scroll back ten lines, got %d", m.profile.statusScroll)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyShiftUp})
+	if m.profile.statusScroll != 0 {
+		t.Errorf("shift+Up should clamp at the top, got %d", m.profile.statusScroll)
+	}
+}
+
+// mixedStatusResult builds a status with three operation groups: add → remote,
+// modify → local, and delete → remote.
+func mixedStatusResult() *status.ProfileStatus {
+	return &status.ProfileStatus{CheckedOut: true, HasBaseline: true, Targets: []status.TargetStatus{{
+		Push:          []status.Change{{Path: "new.png"}},
+		Pull:          []status.Change{{Path: "cover.jpg", Modify: true}},
+		RemoteDeletes: []string{"gone.png"},
+	}}}
+}
+
+// TestActivityFilterCyclesOperations: with the Activity panel focused, → steps
+// the view All → add → remote → modify → local → delete → remote → All, each
+// step showing only that group's rows plus a filter header.
+func TestActivityFilterCyclesOperations(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.result = mixedStatusResult()
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // focus Activity
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	v := m.View()
+	if !strings.Contains(v, "filter:") || !strings.Contains(v, "new.png") {
+		t.Fatalf("first → should filter to add → remote:\n%s", v)
+	}
+	if strings.Contains(v, "cover.jpg") || strings.Contains(v, "gone.png") {
+		t.Errorf("add filter should hide the other groups:\n%s", v)
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if v := m.View(); !strings.Contains(v, "cover.jpg") || strings.Contains(v, "new.png") {
+		t.Errorf("second → should filter to modify → local:\n%s", v)
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if v := m.View(); !strings.Contains(v, "gone.png") || strings.Contains(v, "cover.jpg") {
+		t.Errorf("third → should filter to delete → remote:\n%s", v)
+	}
+
+	// One more wraps back to All: every group visible, no filter header.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	v = m.View()
+	for _, want := range []string{"new.png", "cover.jpg", "gone.png"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("wrapping to All should show every group (missing %q):\n%s", want, v)
+		}
+	}
+	if strings.Contains(v, "filter:") {
+		t.Errorf("All should show no filter header:\n%s", v)
+	}
+}
+
+// TestActivityFilterCyclesBackward: ← cycles the other way, so from All it
+// lands on the last group.
+func TestActivityFilterCyclesBackward(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.result = mixedStatusResult()
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	if v := m.View(); !strings.Contains(v, "gone.png") || strings.Contains(v, "new.png") {
+		t.Errorf("← from All should land on the last group (delete → remote):\n%s", v)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	if v := m.View(); !strings.Contains(v, "cover.jpg") || strings.Contains(v, "gone.png") {
+		t.Errorf("second ← should land on modify → local:\n%s", v)
+	}
+}
+
+// TestActivityFilterResetsScroll: narrowing the list resets the scroll so the
+// filtered view starts at the top.
+func TestActivityFilterResetsScroll(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.result = manyChangesResult(40)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyPgDown})
+	if m.profile.statusScroll == 0 {
+		t.Fatal("PgDn should have scrolled")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.profile.statusScroll != 0 {
+		t.Errorf("changing the filter should reset the scroll, got %d", m.profile.statusScroll)
+	}
+}
+
+// TestActivityFilterInertInActionsPane: like scrolling, the ←→ filter is
+// Tab-gated — in the Actions pane the keys leave the view unfiltered.
+func TestActivityFilterInertInActionsPane(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.result = mixedStatusResult()
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.profile.opFilter != "" {
+		t.Errorf("→ in the actions pane must not filter, got %q", m.profile.opFilter)
+	}
+	if !strings.Contains(m.View(), "gone.png") {
+		t.Errorf("actions-pane view should stay unfiltered:\n%s", m.View())
+	}
+}
+
+// TestActivityFilterAppliesToSyncStream: the filter also narrows the applied
+// change list of an in-flight sync, matching the request that navigation work
+// in the sync view too.
+func TestActivityFilterAppliesToSyncStream(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.acting = true
+	m.pane = paneActivity
+	m.profile.applied = []lifecycle.Event{
+		{Kind: lifecycle.EventAdd, Side: lifecycle.SideRemote, Path: "new.png"},
+		{Kind: lifecycle.EventDelete, Side: lifecycle.SideLocal, Path: "old.txt"},
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	v := m.View()
+	if !strings.Contains(v, "new.png") || strings.Contains(v, "old.txt") {
+		t.Errorf("→ during a sync should filter the applied list to add → remote:\n%s", v)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if v := m.View(); !strings.Contains(v, "old.txt") || strings.Contains(v, "new.png") {
+		t.Errorf("second → should filter to delete → local:\n%s", v)
+	}
+}
+
+// TestNewRunClearsFilter: launching a fresh Status clears a leftover filter so
+// the new result always opens unfiltered.
+func TestNewRunClearsFilter(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.checks["alpha"] = ownLock(m) // cursor sits on Status
+	m.profile.result = mixedStatusResult()
+	m.profile.opFilter = opKey("add", "remote")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter}) // Enter on Status
+	if m.profile.opFilter != "" {
+		t.Errorf("a fresh Status run should clear the filter, got %q", m.profile.opFilter)
 	}
 }
 

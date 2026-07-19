@@ -733,22 +733,14 @@ func (m model) updateProfile(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	actions := visibleActions(m.checks[m.profile.name], m.id)
 	// While an action runs the view is locked to monitoring: only the Activity
-	// scroll keys are live, and esc/q open the cancel confirm. Tab (pane
+	// scroll/filter keys are live, and esc/q open the cancel confirm. Tab (pane
 	// switching) and enter (launching another operation) are ignored.
 	if m.running() {
 		switch key.String() {
 		case "esc", "q":
 			return m.escProfile()
-		case "up", "w":
-			m.scrollActivity(-1)
-		case "down", "s":
-			m.scrollActivity(1)
-		case "pgup":
-			_, ih := m.activityGeometry()
-			m.scrollActivity(-step(ih))
-		case "pgdown":
-			_, ih := m.activityGeometry()
-			m.scrollActivity(step(ih))
+		default:
+			m.activityKey(key.String())
 		}
 		return m, nil
 	}
@@ -767,20 +759,10 @@ func (m model) updateProfile(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Activity pane: the arrow and page keys scroll the status viewport.
+	// Activity pane: the arrow/page keys scroll the status viewport and ←→
+	// cycle the operation filter.
 	if m.pane == paneActivity {
-		switch key.String() {
-		case "up", "w":
-			m.scrollActivity(-1)
-		case "down", "s":
-			m.scrollActivity(1)
-		case "pgup":
-			_, ih := m.activityGeometry()
-			m.scrollActivity(-step(ih))
-		case "pgdown":
-			_, ih := m.activityGeometry()
-			m.scrollActivity(step(ih))
-		}
+		m.activityKey(key.String())
 		return m, nil
 	}
 
@@ -813,6 +795,7 @@ func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 		m.profile.err = nil
 		m.profile.result = nil
 		m.profile.statusScroll = 0
+		m.profile.opFilter = ""
 		// Drop any prior action report ("sync: N pulled") so the fresh
 		// Status result isn't masked by it in renderStatus.
 		m.profile.actionReport = nil
@@ -1112,6 +1095,67 @@ func step(height int) int {
 		return 1
 	}
 	return height
+}
+
+// fastStep is the shift+arrow scroll increment: ten lines, a middle ground
+// between the single-line arrows and the full-page PgUp/PgDn.
+const fastStep = 10
+
+// activityKey handles one key while the Activity panel is being monitored
+// (focused via Tab, or locked during a run): arrows scroll by a line,
+// shift+arrows by fastStep, PgUp/PgDn by a page, and ←→ cycle the operation
+// filter. Unrecognised keys are ignored.
+func (m *model) activityKey(key string) {
+	switch key {
+	case "up", "w":
+		m.scrollActivity(-1)
+	case "down", "s":
+		m.scrollActivity(1)
+	case "shift+up", "W":
+		m.scrollActivity(-fastStep)
+	case "shift+down", "S":
+		m.scrollActivity(fastStep)
+	case "pgup":
+		_, ih := m.activityGeometry()
+		m.scrollActivity(-step(ih))
+	case "pgdown":
+		_, ih := m.activityGeometry()
+		m.scrollActivity(step(ih))
+	case "left", "a":
+		m.cycleOpFilter(-1)
+	case "right", "d":
+		m.cycleOpFilter(1)
+	}
+}
+
+// cycleOpFilter steps the Activity operation filter through All → each
+// operation group present in the current body (in display order) → All again;
+// dir -1 cycles the other way. The scroll resets so the narrowed (or restored)
+// list is read from the top. A body with no filterable groups clears any stale
+// filter and stays put.
+func (m *model) cycleOpFilter(dir int) {
+	keys := m.profile.activityOpKeys()
+	if len(keys) == 0 {
+		m.profile.opFilter = ""
+		return
+	}
+	// Position in the cycle: -1 is "All"; otherwise the index of the current key.
+	cur := -1
+	for i, k := range keys {
+		if k == m.profile.opFilter {
+			cur = i
+			break
+		}
+	}
+	// n+1 positions in the cycle (All + each group), stepped modulo.
+	n := len(keys) + 1
+	pos := (cur + 1 + dir + n) % n
+	if pos == 0 {
+		m.profile.opFilter = ""
+	} else {
+		m.profile.opFilter = keys[pos-1]
+	}
+	m.profile.statusScroll = 0
 }
 
 // scrollActivity moves the Activity viewport by delta lines (negative scrolls

@@ -30,8 +30,12 @@ type profileModel struct {
 	scanning     bool                  // a local file-stat scan is in flight (part of Status)
 	fileStats    *localstat.Stats      // last successful local scan; nil until run
 	statErr      error                 // last local-scan error; nil if none
-	statusScroll int                   // first visible Activity line; scrolled with PgUp/PgDn
-	canceled     bool                  // the in-flight action was stopped via Esc; shows a "Canceled." note
+	statusScroll int                   // first visible Activity line; scrolled with ↑↓/shift+↑↓/PgUp/PgDn
+	// opFilter narrows the Activity change list to one operation group (an opKey
+	// like "add → remote"); empty shows everything. Cycled with ←→ through the
+	// groups present in the current body, and reset whenever a new run starts.
+	opFilter string
+	canceled bool // the in-flight action was stopped via Esc; shows a "Canceled." note
 }
 
 func newProfileView(name string) profileModel { return profileModel{name: name} }
@@ -77,6 +81,87 @@ func (p *profileModel) moveUp() {
 func (p *profileModel) moveDown(n int) {
 	if p.cursor < n-1 {
 		p.cursor++
+	}
+}
+
+// opKey identifies one operation group in the Activity change list — the verb
+// plus the side it lands on, e.g. "add → remote" — used to match rows against
+// the ←→ operation filter.
+func opKey(verb, side string) string { return verb + " → " + side }
+
+// statusOpKeys returns the distinct operation groups present in a Status
+// result, in the order statusBody renders them, so the ←→ filter cycles in
+// display order.
+func statusOpKeys(st status.ProfileStatus) []string {
+	var keys []string
+	seen := make(map[string]bool)
+	add := func(verb, side string) {
+		k := opKey(verb, side)
+		if !seen[k] {
+			seen[k] = true
+			keys = append(keys, k)
+		}
+	}
+	for _, t := range st.Targets {
+		for _, c := range t.Push {
+			add(changeVerb(c.Modify).verb, "remote")
+		}
+		for _, c := range t.Pull {
+			add(changeVerb(c.Modify).verb, "local")
+		}
+		if len(t.LocalDeletes) > 0 {
+			add("delete", "local")
+		}
+		if len(t.RemoteDeletes) > 0 {
+			add("delete", "remote")
+		}
+		if len(t.Conflicts) > 0 {
+			add("conflict", "both")
+		}
+	}
+	return keys
+}
+
+// appliedOpKeys returns the distinct operation groups present in an applied
+// change list (the live/last Sync, Checkout, or Check-in stream), in first-seen
+// order.
+func appliedOpKeys(events []lifecycle.Event) []string {
+	var keys []string
+	seen := make(map[string]bool)
+	for _, e := range events {
+		k := opKey(appliedVerb(e.Kind).verb, sideLabel(e.Side))
+		if !seen[k] {
+			seen[k] = true
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+// activityOpKeys returns the operation groups the ←→ filter can cycle through
+// for the Activity body currently showing. It mirrors renderStatus's case
+// order: only the applied change list and the Status change list are
+// filterable; every other body (errors, conflicts, placeholders) yields none.
+func (p profileModel) activityOpKeys() []string {
+	switch {
+	case p.canceled:
+		return nil
+	case p.acting:
+		return appliedOpKeys(p.applied)
+	case p.actionReport != nil && len(p.actionReport.Conflicts) > 0:
+		return nil
+	case p.actionErr != nil:
+		return nil
+	case p.actionReport != nil:
+		return appliedOpKeys(p.applied)
+	case p.checking:
+		return nil
+	case p.err != nil:
+		return nil
+	case p.result != nil:
+		return statusOpKeys(*p.result)
+	default:
+		return nil
 	}
 }
 
@@ -164,7 +249,7 @@ func renderStatus(p profileModel, width int) string {
 	case p.acting:
 		// Show applied changes as they stream in; before the first one arrives,
 		// a bare "Working…".
-		return appliedBody(p.applied, "Working…")
+		return filterHeader(p.opFilter) + appliedBody(p.applied, "Working…", p.opFilter)
 	case p.actionReport != nil && len(p.actionReport.Conflicts) > 0:
 		return conflictBody(*p.actionReport)
 	case p.actionErr != nil:
@@ -176,10 +261,20 @@ func renderStatus(p profileModel, width int) string {
 	case p.err != nil:
 		return errStyle.Render(p.err.Error())
 	case p.result != nil:
-		return statusBody(*p.result, width)
+		return filterHeader(p.opFilter) + statusBody(*p.result, width, p.opFilter)
 	default:
 		return renderToggleHelp()
 	}
+}
+
+// filterHeader is the line above a filtered change list naming the active
+// operation group, so a narrowed view is never mistaken for the full one.
+// Empty (no line) when no filter is active.
+func filterHeader(filter string) string {
+	if filter == "" {
+		return ""
+	}
+	return helpTextStyle.Render("filter: ") + selectedRowStyle.Render(filter) + "\n"
 }
 
 // actionBody formats a completed mutating action: the full list of applied
@@ -200,7 +295,7 @@ func actionBody(p profileModel) string {
 	if len(p.applied) == 0 {
 		return summary
 	}
-	return appliedBody(p.applied, "") + "\n\n" + summary
+	return filterHeader(p.opFilter) + appliedBody(p.applied, "", p.opFilter) + "\n\n" + summary
 }
 
 // conflictBody renders a stopped-on-conflict action: nothing was written, so the
@@ -215,14 +310,22 @@ func conflictBody(rep lifecycle.Report) string {
 }
 
 // appliedBody renders a list of applied changes as status-view rows (verb → side
-// path), or placeholder when the list is empty.
-func appliedBody(events []lifecycle.Event, placeholder string) string {
+// path), or placeholder when the list is empty. A non-empty filter keeps only
+// the rows of that operation group (opKey).
+func appliedBody(events []lifecycle.Event, placeholder, filter string) string {
 	if len(events) == 0 {
 		return placeholder
 	}
-	rows := make([]string, len(events))
-	for i, e := range events {
-		rows[i] = changeRow(appliedVerb(e.Kind), sideLabel(e.Side), e.Path)
+	var rows []string
+	for _, e := range events {
+		v, side := appliedVerb(e.Kind), sideLabel(e.Side)
+		if filter != "" && opKey(v.verb, side) != filter {
+			continue
+		}
+		rows = append(rows, changeRow(v, side, e.Path))
+	}
+	if len(rows) == 0 {
+		return placeholder
 	}
 	return strings.Join(rows, "\n")
 }
@@ -253,7 +356,9 @@ func sideLabel(s lifecycle.Side) string {
 // and the side it lands on ("add → remote", "delete → local", "conflict →
 // both"), or "no changes" when that target is in sync. Targets are separated by a
 // width-spanning divider. width sizes that divider; titledBox clips overlong rows.
-func statusBody(st status.ProfileStatus, width int) string {
+// A non-empty filter keeps only the rows of that operation group (opKey);
+// targets with no matching rows are dropped entirely.
+func statusBody(st status.ProfileStatus, width int, filter string) string {
 	if !st.CheckedOut {
 		return "not checked out"
 	}
@@ -261,35 +366,45 @@ func statusBody(st status.ProfileStatus, width int) string {
 		return "checked out, but no local baseline on this machine"
 	}
 	divider := helpTextStyle.Render(strings.Repeat("─", width))
-	var b strings.Builder
-	for i, t := range st.Targets {
-		if i > 0 {
-			b.WriteString("\n" + divider + "\n")
-		}
-		b.WriteString(t.Label())
-		if t.InSync() {
-			b.WriteString("\n  no changes")
-			continue
+	var sections []string
+	for _, t := range st.Targets {
+		var b strings.Builder
+		keep := func(v verbStyle, side, path string) {
+			if filter == "" || opKey(v.verb, side) == filter {
+				writeChange(&b, v, side, path)
+			}
 		}
 		// Copies: pushes travel local → remote, pulls remote → local. Deletes
 		// mirror or propagate a removal; conflicts changed on both sides.
 		for _, c := range t.Push {
-			writeChange(&b, changeVerb(c.Modify), "remote", c.Path)
+			keep(changeVerb(c.Modify), "remote", c.Path)
 		}
 		for _, c := range t.Pull {
-			writeChange(&b, changeVerb(c.Modify), "local", c.Path)
+			keep(changeVerb(c.Modify), "local", c.Path)
 		}
 		for _, p := range t.LocalDeletes {
-			writeChange(&b, verbStyle{"delete", errStyle}, "local", p)
+			keep(verbStyle{"delete", errStyle}, "local", p)
 		}
 		for _, p := range t.RemoteDeletes {
-			writeChange(&b, verbStyle{"delete", errStyle}, "remote", p)
+			keep(verbStyle{"delete", errStyle}, "remote", p)
 		}
 		for _, p := range t.Conflicts {
-			writeChange(&b, verbStyle{"conflict", errStyle}, "both", p)
+			keep(verbStyle{"conflict", errStyle}, "both", p)
 		}
+		switch {
+		case b.Len() > 0:
+			sections = append(sections, t.Label()+b.String())
+		case filter == "" && t.InSync():
+			sections = append(sections, t.Label()+"\n  no changes")
+		case filter == "":
+			sections = append(sections, t.Label())
+		}
+		// A filtered-out target (rows exist but none match) is dropped.
 	}
-	return b.String()
+	if len(sections) == 0 {
+		return helpTextStyle.Render("no changes match this filter")
+	}
+	return strings.Join(sections, "\n"+divider+"\n")
 }
 
 // verbStyle pairs a change's action word with its highlight style.

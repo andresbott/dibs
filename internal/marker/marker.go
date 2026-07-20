@@ -23,8 +23,13 @@ func Exclude() []string { return []string{"/" + FileName} }
 
 // Marker is the on-disk lock record.
 type Marker struct {
-	CheckedOutBy string    `json:"checked_out_by"`
-	Profile      string    `json:"profile"`
+	CheckedOutBy string `json:"checked_out_by"`
+	Profile      string `json:"profile"`
+	// ProfileID is the UUID of the profile that holds the lock (assigned when
+	// the profile is created). It disambiguates two profiles on the same
+	// machine pointing at the same remote root — identity and host alone
+	// cannot tell them apart. Empty in markers written before IDs existed.
+	ProfileID    string    `json:"profile_id,omitempty"`
 	Host         string    `json:"host"`
 	Relpaths     []string  `json:"relpaths"`
 	CheckedOutAt time.Time `json:"checked_out_at"`
@@ -88,7 +93,14 @@ func Remove(remoteRoot string) error {
 }
 
 // OwnedBy reports whether this marker belongs to the given identity on the
-// given host: both must match (this-machine ownership).
-func (m *Marker) OwnedBy(by, host string) bool {
-	return m.CheckedOutBy == by && m.Host == host
+// given host for the given profile ID: identity and host must match, and when
+// the marker records a profile ID it must match too — two profiles on the same
+// machine pointing at the same remote root are distinct lock holders. A marker
+// without a profile ID (written before IDs existed) falls back to the
+// identity+host match so pre-upgrade checkouts stay releasable.
+func (m *Marker) OwnedBy(by, host, profileID string) bool {
+	if m.CheckedOutBy != by || m.Host != host {
+		return false
+	}
+	return m.ProfileID == "" || m.ProfileID == profileID
 }

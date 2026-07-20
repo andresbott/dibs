@@ -90,7 +90,7 @@ func TestRemoteAccessorRoundTrip(t *testing.T) {
 		t.Fatalf("wire content: %v %+v", err, onWire)
 	}
 	got, ok, err := a.Read(ctx)
-	if err != nil || !ok || !got.OwnedBy("me@host", "host") {
+	if err != nil || !ok || !got.OwnedBy("me@host", "host", "") {
 		t.Fatalf("read: %+v ok=%v err=%v", got, ok, err)
 	}
 	if err := a.Remove(ctx); err != nil {

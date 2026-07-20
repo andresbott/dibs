@@ -53,7 +53,7 @@ func (r Runner) Checkout(ctx context.Context, name string, p config.Profile, id 
 	if err != nil {
 		return rep, err
 	}
-	if exists && existing.OwnedBy(id.By, id.Host) {
+	if exists && existing.OwnedBy(id.By, id.Host, p.ID) {
 		return r.widenCheckout(ctx, rep, name, localRoot, acc, existing, relpath)
 	}
 	if exists && !opts.Force {
@@ -99,6 +99,7 @@ func (r Runner) Checkout(ctx context.Context, name string, p config.Profile, id 
 	m := &marker.Marker{
 		CheckedOutBy: id.By,
 		Profile:      name,
+		ProfileID:    p.ID,
 		Host:         id.Host,
 		Relpaths:     relpaths,
 		CheckedOutAt: now,
@@ -109,7 +110,7 @@ func (r Runner) Checkout(ctx context.Context, name string, p config.Profile, id 
 		_ = baseline.Remove(name) // roll back the fresh checkout's baseline
 		return rep, err
 	}
-	if err := verifyClaim(ctx, acc, name, id); err != nil {
+	if err := verifyClaim(ctx, acc, name, id, p.ID); err != nil {
 		_ = baseline.Remove(name)
 		return rep, err
 	}
@@ -123,7 +124,7 @@ func (r Runner) Checkout(ctx context.Context, name string, p config.Profile, id 
 // both write — last write wins silently. The read-back shrinks that window to
 // the gap between the two writes (it cannot be fully closed over SMB/rsync).
 // The loser learns who holds the lock; the caller rolls its baseline back.
-func verifyClaim(ctx context.Context, acc marker.Accessor, name string, id ident.Ident) error {
+func verifyClaim(ctx context.Context, acc marker.Accessor, name string, id ident.Ident, profileID string) error {
 	verify, found, err := acc.Read(ctx)
 	if err != nil {
 		return fmt.Errorf("checkout of %q may not have taken — verifying the marker failed: %w (re-run checkout)", name, err)
@@ -131,7 +132,7 @@ func verifyClaim(ctx context.Context, acc marker.Accessor, name string, id ident
 	if !found {
 		return fmt.Errorf("checkout of %q did not take — the marker vanished after writing (re-run checkout)", name)
 	}
-	if !verify.OwnedBy(id.By, id.Host) {
+	if !verify.OwnedBy(id.By, id.Host, profileID) {
 		return fmt.Errorf("profile %q was checked out by %s on %s at the same time — the other checkout won",
 			name, verify.CheckedOutBy, verify.Host)
 	}

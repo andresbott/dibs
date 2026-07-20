@@ -86,6 +86,43 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveRoundTripID(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	in := &config.Config{
+		Profiles: map[string]config.Profile{
+			"work": {ID: "uuid-work", LocalRoot: "/home/me/work", RemoteRoot: "/mnt/nas/work"},
+		},
+	}
+	if err := config.Save(p, in); err != nil {
+		t.Fatal(err)
+	}
+	out, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Profiles["work"].ID != "uuid-work" {
+		t.Fatalf("round trip lost the profile ID: %#v", out.Profiles["work"])
+	}
+}
+
+func TestNewProfileID(t *testing.T) {
+	a, b := config.NewProfileID(), config.NewProfileID()
+	if a == b {
+		t.Fatal("two generated IDs must differ")
+	}
+	// UUID v4 shape: 8-4-4-4-12 hex groups, version nibble 4, variant nibble 8-b.
+	parts := strings.Split(a, "-")
+	if len(parts) != 5 || len(parts[0]) != 8 || len(parts[1]) != 4 || len(parts[2]) != 4 || len(parts[3]) != 4 || len(parts[4]) != 12 {
+		t.Fatalf("ID %q is not shaped like a UUID", a)
+	}
+	if parts[2][0] != '4' {
+		t.Errorf("ID %q version nibble = %c, want 4", a, parts[2][0])
+	}
+	if v := parts[3][0]; v != '8' && v != '9' && v != 'a' && v != 'b' {
+		t.Errorf("ID %q variant nibble = %c, want one of 89ab", a, v)
+	}
+}
+
 func TestSaveRoundTripSubpaths(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.yaml")
 	in := &config.Config{

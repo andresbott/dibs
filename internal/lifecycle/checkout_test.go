@@ -55,7 +55,7 @@ func TestCheckoutWritesMarkerAndEmptyBaseline(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("marker: ok=%v err=%v", ok, err)
 	}
-	if !m.OwnedBy("me@host", "host") || m.Profile != "work" {
+	if !m.OwnedBy("me@host", "host", "") || m.Profile != "work" {
 		t.Errorf("marker = %+v", m)
 	}
 	st, ok, err := baseline.Load("work")
@@ -94,8 +94,37 @@ func TestCheckoutForceOverridesForeignMarker(t *testing.T) {
 		t.Fatalf("force checkout: %v", err)
 	}
 	m, _, _ := marker.Read(remote)
-	if !m.OwnedBy("me@host", "host") {
+	if !m.OwnedBy("me@host", "host", "") {
 		t.Errorf("marker = %+v", m)
+	}
+}
+
+// Two profiles on the SAME machine (same identity, same host) pointing at the
+// same remote root are distinct lock holders: the second profile's checkout
+// must refuse the first one's marker instead of treating it as its own
+// (issue #14). Force still steals it, like any foreign lock.
+func TestCheckoutRefusesOtherProfileSameMachine(t *testing.T) {
+	_, remote := fixture(t)
+	id := testIdent()
+	pA := config.Profile{ID: "uuid-a", LocalRoot: t.TempDir() + "/a", RemoteRoot: remote}
+	pB := config.Profile{ID: "uuid-b", LocalRoot: t.TempDir() + "/b", RemoteRoot: remote}
+	if _, err := (Runner{}).Checkout(context.Background(), "profA", pA, id, "", Options{}); err != nil {
+		t.Fatalf("first checkout: %v", err)
+	}
+	if _, err := (Runner{}).Checkout(context.Background(), "profB", pB, id, "", Options{}); err == nil {
+		t.Fatal("a second profile on the same machine must not pass the first profile's ownership check")
+	}
+	m, _, _ := marker.Read(remote)
+	if m.ProfileID != "uuid-a" {
+		t.Errorf("marker profile_id = %q, want uuid-a (untouched by the refused checkout)", m.ProfileID)
+	}
+	// The lock is foreign to profB, so Force steals it like any other.
+	if _, err := (Runner{}).Checkout(context.Background(), "profB", pB, id, "", Options{Force: true}); err != nil {
+		t.Fatalf("force checkout: %v", err)
+	}
+	m, _, _ = marker.Read(remote)
+	if m.ProfileID != "uuid-b" {
+		t.Errorf("marker profile_id = %q, want uuid-b after the steal", m.ProfileID)
 	}
 }
 
@@ -304,7 +333,7 @@ func TestCheckoutWidensHeldRelpaths(t *testing.T) {
 	if len(m.Relpaths) != 2 {
 		t.Errorf("marker relpaths = %v, want [docs notes]", m.Relpaths)
 	}
-	if !m.OwnedBy(id.By, id.Host) {
+	if !m.OwnedBy(id.By, id.Host, p.ID) {
 		t.Error("lock ownership must be untouched by widening")
 	}
 }

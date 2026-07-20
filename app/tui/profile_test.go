@@ -19,7 +19,7 @@ func ownResult() *sanity.Result {
 }
 
 func TestActionCursorMoves(t *testing.T) {
-	actions := visibleActions(ownResult(), ownID) // Status, Sync, Check-in
+	actions := visibleActions(ownResult(), ownID, "") // Status, Sync, Check-in
 	n := len(actions)
 	p := newProfileView("alpha")
 	if p.cursor != 0 {
@@ -47,7 +47,7 @@ func TestActionCursorMoves(t *testing.T) {
 func TestClampCursorOnShrink(t *testing.T) {
 	p := newProfileView("alpha")
 	p.cursor = 2 // Check-in, valid while checked out
-	p.clampCursor(len(visibleActions(&sanity.Result{CheckedOut: false}, ownID)))
+	p.clampCursor(len(visibleActions(&sanity.Result{CheckedOut: false}, ownID, "")))
 	if p.cursor != 0 {
 		t.Fatalf("cursor after shrink to [Checkout] = %d, want 0", p.cursor)
 	}
@@ -73,7 +73,7 @@ func TestActionsViewShowsPanels(t *testing.T) {
 // TestCheckedOutActionsOrder: a profile checked out by this machine offers
 // Status, Sync, then Check-in (in that order), with the cursor landing on Status.
 func TestCheckedOutActionsOrder(t *testing.T) {
-	got := visibleActions(ownResult(), ownID)
+	got := visibleActions(ownResult(), ownID, "")
 	want := []string{"Status", "Sync", "Check-in"}
 	if !equalStrings(got, want) {
 		t.Fatalf("checked-out actions = %v, want %v", got, want)

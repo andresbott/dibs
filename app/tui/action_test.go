@@ -58,7 +58,7 @@ func TestSyncOpensConfirmModal(t *testing.T) {
 	}
 	m.checks = map[string]*sanity.Result{"work": ownLock(m)}
 	m.profile = newProfileView("work")
-	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id), "Sync")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Sync")
 	m2, _ := m.updateProfile(keyMsg("enter"))
 	got := m2.(model)
 	if got.mode != modeConfirm || got.confirmKind != confirmSync {
@@ -332,21 +332,21 @@ func TestDryRunSyncSkipsContentsRescan(t *testing.T) {
 func TestSyncCompletionFocusesStatus(t *testing.T) {
 	cfg := &config.Config{Profiles: map[string]config.Profile{"work": {}}}
 	m := newModel("/tmp/x.yaml", cfg)
-	m.checks["work"] = ownLock(m) // actions: Status, Sync, Check-in
+	m.checks["work"] = ownLock(m)                    // actions: Status, Sync, Check-in
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter}) // open "work"
-	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id), "Sync")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Sync")
 	m.profile.acting = true
 
 	m = update(t, m, actionResultMsg{name: "work", report: lifecycle.Report{Action: "sync"}})
-	if want := actionIndex(visibleActions(m.checks["work"], m.id), "Status"); m.profile.cursor != want {
+	if want := actionIndex(visibleActions(m.checks["work"], m.id, ""), "Status"); m.profile.cursor != want {
 		t.Errorf("a completed sync should move the cursor to Status (%d), got %d", want, m.profile.cursor)
 	}
 
 	// A failed sync leaves the cursor on Sync so retrying stays one Enter away.
-	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id), "Sync")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Sync")
 	m.profile.acting = true
 	m = update(t, m, actionResultMsg{name: "work", report: lifecycle.Report{Action: "sync"}, err: errors.New("boom")})
-	if want := actionIndex(visibleActions(m.checks["work"], m.id), "Sync"); m.profile.cursor != want {
+	if want := actionIndex(visibleActions(m.checks["work"], m.id, ""), "Sync"); m.profile.cursor != want {
 		t.Errorf("a failed sync should keep the cursor on Sync (%d), got %d", want, m.profile.cursor)
 	}
 }
@@ -388,20 +388,26 @@ func TestCheckinErrorStaysOnProfile(t *testing.T) {
 func TestActionGatingByCheckoutState(t *testing.T) {
 	id := ident.Ident{By: "me@host", Host: "host"}
 	own := &marker.Marker{CheckedOutBy: id.By, Host: id.Host}
-	if got := visibleActions(&sanity.Result{CheckedOut: false}, id); !equalStrings(got, []string{"Checkout"}) {
+	if got := visibleActions(&sanity.Result{CheckedOut: false}, id, ""); !equalStrings(got, []string{"Checkout"}) {
 		t.Errorf("not-checked-out actions = %v, want [Checkout]", got)
 	}
-	if got := visibleActions(&sanity.Result{CheckedOut: true, Marker: own}, id); !equalStrings(got, []string{"Status", "Sync", "Check-in"}) {
+	if got := visibleActions(&sanity.Result{CheckedOut: true, Marker: own}, id, ""); !equalStrings(got, []string{"Status", "Sync", "Check-in"}) {
 		t.Errorf("own-lock actions = %v, want [Status Sync Check-in]", got)
 	}
-	if got := visibleActions(foreignLock(), id); !equalStrings(got, []string{"Checkout"}) {
+	if got := visibleActions(foreignLock(), id, ""); !equalStrings(got, []string{"Checkout"}) {
 		t.Errorf("foreign-lock actions = %v, want [Checkout]", got)
 	}
-	if got := visibleActions(&sanity.Result{CheckedOut: true}, id); !equalStrings(got, []string{"Checkout"}) {
+	if got := visibleActions(&sanity.Result{CheckedOut: true}, id, ""); !equalStrings(got, []string{"Checkout"}) {
 		t.Errorf("unreadable-marker actions = %v, want [Checkout]", got)
 	}
-	if got := visibleActions(nil, id); len(got) != 0 {
+	if got := visibleActions(nil, id, ""); len(got) != 0 {
 		t.Errorf("unknown-state actions = %v, want none", got)
+	}
+	// A marker stamped with another profile's ID is a foreign lock even when
+	// identity and host match (two profiles on one machine, same remote root).
+	otherProfile := &marker.Marker{CheckedOutBy: id.By, Host: id.Host, ProfileID: "uuid-other"}
+	if got := visibleActions(&sanity.Result{CheckedOut: true, Marker: otherProfile}, id, "uuid-mine"); !equalStrings(got, []string{"Checkout"}) {
+		t.Errorf("other-profile-lock actions = %v, want [Checkout]", got)
 	}
 
 	// A checked-out profile has no Checkout row, so a stray cursor past the list
@@ -412,7 +418,7 @@ func TestActionGatingByCheckoutState(t *testing.T) {
 	}
 	m.checks = map[string]*sanity.Result{"work": ownLock(m)}
 	m.profile = newProfileView("work")
-	m.profile.cursor = len(visibleActions(m.checks["work"], m.id)) // out of range
+	m.profile.cursor = len(visibleActions(m.checks["work"], m.id, "")) // out of range
 	m2, _ := m.updateProfile(keyMsg("enter"))
 	if m2.(model).profile.acting {
 		t.Error("Enter past the end of the action list must not start an action")
@@ -438,7 +444,7 @@ func TestCheckinOpensConfirmModal(t *testing.T) {
 	}
 	m.checks = map[string]*sanity.Result{"work": ownLock(m)}
 	m.profile = newProfileView("work")
-	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id), "Check-in")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Check-in")
 	m2, _ := m.updateProfile(keyMsg("enter"))
 	if m2.(model).mode != modeConfirm {
 		t.Fatal("Check-in Enter should open the confirm modal")
@@ -460,7 +466,7 @@ func TestCheckinOpenResetsCleanCheckbox(t *testing.T) {
 	}
 	m.checks = map[string]*sanity.Result{"work": ownLock(m)}
 	m.profile = newProfileView("work")
-	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id), "Check-in")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Check-in")
 	m2, _ := m.updateProfile(keyMsg("enter"))
 	if m2.(model).checkinClean {
 		t.Error("opening the check-in dialog should reset the clean checkbox to unchecked")
@@ -480,7 +486,7 @@ func TestCheckinOpensFocusedOnCheckbox(t *testing.T) {
 	}
 	m.checks = map[string]*sanity.Result{"work": ownLock(m)}
 	m.profile = newProfileView("work")
-	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id), "Check-in")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Check-in")
 	m2, _ := m.updateProfile(keyMsg("enter"))
 	if m2.(model).confirmFocus != confirmFocusAbandon {
 		t.Errorf("check-in dialog should open focused on the abandon checkbox, got %d", m2.(model).confirmFocus)

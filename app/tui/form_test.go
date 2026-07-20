@@ -372,6 +372,40 @@ func TestAddProfilePersists(t *testing.T) {
 	if got.LocalRoot != "/home/me/pics" || got.RemoteRoot != "/mnt/nas/pics" {
 		t.Fatalf("persisted profile = %#v", got)
 	}
+	if got.ID == "" {
+		t.Fatal("a new profile must be assigned an ID")
+	}
+}
+
+// TestEditPreservesProfileID: editing (or renaming) a profile keeps its ID —
+// the ID identifies checkout markers, so it must survive every form save. A
+// hand-written profile that predates IDs gets one assigned on its first edit.
+func TestEditPreservesProfileID(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := &config.Config{Profiles: map[string]config.Profile{
+		"work":   {ID: "uuid-work", LocalRoot: "/l", RemoteRoot: "/r"},
+		"legacy": {LocalRoot: "/l2", RemoteRoot: "/r2"}, // pre-ID profile
+	}}
+	if err := config.Save(p, cfg); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(p, cfg)
+	m.mode = modeForm
+	m.form = newForm("work", cfg.Profiles["work"])
+	m.form.inputs[0].SetValue("renamed")
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+	if got := m.cfg.Profiles["renamed"].ID; got != "uuid-work" {
+		t.Fatalf("renamed profile ID = %q, want the original uuid-work", got)
+	}
+
+	m.mode = modeForm
+	m.form = newForm("legacy", m.cfg.Profiles["legacy"])
+	m = tabToKind(t, m, slotSave)
+	m = update(t, m, spaceKey)
+	if m.cfg.Profiles["legacy"].ID == "" {
+		t.Fatal("editing a pre-ID profile must assign it an ID")
+	}
 }
 
 func TestAddProfileValidationBlocks(t *testing.T) {

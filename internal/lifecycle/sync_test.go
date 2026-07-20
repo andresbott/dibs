@@ -118,7 +118,7 @@ func TestSyncPushesLocalEdit(t *testing.T) {
 		t.Errorf("remote file.txt = %q", got)
 	}
 	m, _, _ := marker.Read(remote)
-	if !m.OwnedBy(id.By, id.Host) {
+	if !m.OwnedBy(id.By, id.Host, p.ID) {
 		t.Error("marker ownership must be preserved")
 	}
 	if !m.LastSyncAt.Equal(time.Unix(500, 0).UTC()) {

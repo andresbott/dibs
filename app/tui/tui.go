@@ -156,6 +156,11 @@ func identityString(cfg *config.Config) string {
 	return id.By
 }
 
+// profileID returns the stable ID of a named profile ("" when the profile is
+// unknown or predates IDs — the marker ownership check then falls back to
+// identity+host).
+func (m model) profileID(name string) string { return m.cfg.Profiles[name].ID }
+
 func (m *model) refreshList() {
 	names := make([]string, 0, len(m.cfg.Profiles))
 	for name := range m.cfg.Profiles {
@@ -231,7 +236,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// visible action list's length (e.g. a completed checkout swaps
 		// [Checkout] for [Status, Sync, Check-in]), so keep the cursor in range.
 		if m.sub == subActions && m.profile.name == res.name {
-			m.profile.clampCursor(len(visibleActions(&r, m.id)))
+			m.profile.clampCursor(len(visibleActions(&r, m.id, m.profileID(res.name))))
 		}
 		return m, nil
 	}
@@ -694,7 +699,7 @@ func (m *model) applyActionResult(res actionResultMsg) {
 	// After a completed sync, park the actions cursor back on Status so the
 	// natural follow-up (verifying the synced state) is one Enter away.
 	if res.err == nil && rep.Action == "sync" {
-		for i, a := range visibleActions(m.checks[res.name], m.id) {
+		for i, a := range visibleActions(m.checks[res.name], m.id, m.profileID(res.name)) {
 			if a == "Status" {
 				m.profile.cursor = i
 				break
@@ -738,7 +743,7 @@ func (m model) updateProfile(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	actions := visibleActions(m.checks[m.profile.name], m.id)
+	actions := visibleActions(m.checks[m.profile.name], m.id, m.profileID(m.profile.name))
 	// While an action runs the view is locked to monitoring: only the Activity
 	// scroll/filter keys are live, and esc/q open the cancel confirm. Tab (pane
 	// switching) and enter (launching another operation) are ignored.
@@ -833,7 +838,7 @@ func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 		// missing or held elsewhere shows the holder and the steal checkbox.
 		r := m.checks[m.profile.name]
 		m.confirmForeign = r != nil && r.CheckedOut &&
-			(r.Marker == nil || !r.Marker.OwnedBy(m.id.By, m.id.Host))
+			(r.Marker == nil || !r.Marker.OwnedBy(m.id.By, m.id.Host, m.profileID(m.profile.name)))
 		m.checkoutSteal = false
 		m.mode = modeConfirm
 	case "Sync":
@@ -930,6 +935,15 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	prev := cloneProfiles(m.cfg.Profiles)
+	// The form never edits the ID: an edit keeps the profile's existing ID and
+	// a new profile (or a hand-written one that predates IDs) gets a fresh one,
+	// so checkout markers can tell profiles apart even on the same machine.
+	if m.form.origName != "" {
+		p.ID = m.cfg.Profiles[m.form.origName].ID
+	}
+	if p.ID == "" {
+		p.ID = config.NewProfileID()
+	}
 	if m.form.origName != "" && m.form.origName != name {
 		delete(m.cfg.Profiles, m.form.origName)
 		delete(m.checks, m.form.origName)
@@ -1038,7 +1052,7 @@ func (m model) mainView(dim bool) string {
 	var topTitle, topBody, name string
 	if m.sub == subActions {
 		topTitle = "Actions"
-		topBody = renderActions(m.profile.cursor, leftW-2, m.checks[m.profile.name], m.id, m.running())
+		topBody = renderActions(m.profile.cursor, leftW-2, m.checks[m.profile.name], m.id, m.profileID(m.profile.name), m.running())
 		name = m.profile.name
 	} else {
 		topTitle = "Profiles"

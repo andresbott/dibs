@@ -77,14 +77,37 @@ func TestRemoveThenReadGone(t *testing.T) {
 
 func TestOwnedBy(t *testing.T) {
 	m := sampleMarker()
-	if !m.OwnedBy("andres@thinkpad", "thinkpad") {
+	if !m.OwnedBy("andres@thinkpad", "thinkpad", "") {
 		t.Error("should own its own marker")
 	}
-	if m.OwnedBy("alice@nas", "nas") {
+	if m.OwnedBy("alice@nas", "nas", "") {
 		t.Error("should not own another identity")
 	}
-	if m.OwnedBy("andres@thinkpad", "laptop") {
+	if m.OwnedBy("andres@thinkpad", "laptop", "") {
 		t.Error("same identity on a different host must not own it")
+	}
+}
+
+// Two profiles on the same machine (same identity, same host) pointing at the
+// same remote root must not own each other's lock: the profile ID is what
+// tells them apart (issue #14).
+func TestOwnedByProfileID(t *testing.T) {
+	m := sampleMarker()
+	m.ProfileID = "uuid-a"
+	if !m.OwnedBy("andres@thinkpad", "thinkpad", "uuid-a") {
+		t.Error("should own its own marker with a matching profile ID")
+	}
+	if m.OwnedBy("andres@thinkpad", "thinkpad", "uuid-b") {
+		t.Error("another profile on the same machine must not own it")
+	}
+	if m.OwnedBy("andres@thinkpad", "thinkpad", "") {
+		t.Error("an ID-less profile must not own an ID-stamped marker")
+	}
+	// A marker written before profile IDs existed falls back to identity+host,
+	// so pre-upgrade checkouts stay releasable.
+	m.ProfileID = ""
+	if !m.OwnedBy("andres@thinkpad", "thinkpad", "uuid-a") {
+		t.Error("an ID-less marker must fall back to the identity+host match")
 	}
 }
 

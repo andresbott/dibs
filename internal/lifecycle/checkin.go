@@ -123,8 +123,8 @@ func (r Runner) abandon(ctx context.Context, rep Report, name string, p config.P
 	}
 	// Ownership is absolute: abandoning a checkout held by another machine is
 	// checkout --force's job, never checkin's.
-	if !m.OwnedBy(id.By, id.Host) {
-		return rep, fmt.Errorf("profile %q is checked out by %s on %s (not this machine)", name, m.CheckedOutBy, m.Host)
+	if !m.OwnedBy(id.By, id.Host, p.ID) {
+		return rep, fmt.Errorf("profile %q is checked out by %s on %s (not this profile)", name, m.CheckedOutBy, m.Host)
 	}
 	if opts.DryRun {
 		return rep, nil

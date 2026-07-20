@@ -46,4 +46,6 @@ movement everywhere.
 - Server-side changes during a checkout are expected to be rare but must be handled
   safely: three-way merge against the checkout baseline, conflicts stop the sync.
 - The lock is cooperative and per-profile: one marker at the remote root, owned by one
-  machine, covering the whole checkout regardless of subdirectory scope.
+  profile (identity + host + the profile's UUID), covering the whole checkout regardless
+  of subdirectory scope. The UUID keeps two profiles on the same machine that point at
+  the same remote root from passing each other's ownership check.

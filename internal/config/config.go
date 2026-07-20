@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,11 @@ import (
 // Subpaths, when non-empty, scope the profile to only those relative paths under both
 // roots; an empty list means the whole root.
 type Profile struct {
+	// ID is the profile's stable unique identifier (a UUID assigned when the
+	// profile is created). It is recorded in checkout markers so lock ownership
+	// is per-profile, not per-machine: two profiles on the same machine pointing
+	// at the same remote root must not pass each other's ownership check.
+	ID         string `yaml:"id,omitempty"`
 	LocalRoot  string `yaml:"local_root"`
 	RemoteRoot string `yaml:"remote_root"`
 	// SSHIdentityFile, for an ssh:// remote, is the private key handed to ssh -i.
@@ -41,6 +47,15 @@ type Profile struct {
 // metadata files macOS Finder (.DS_Store) and KDE Dolphin (.directory) drop
 // into any folder they display — including a freshly mounted share.
 func DefaultIgnore() []string { return []string{".DS_Store", ".directory"} }
+
+// NewProfileID returns a fresh profile identifier: a random UUID v4.
+func NewProfileID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])      // crypto/rand.Read never returns an error
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
 
 // Config is the on-disk configuration: an identity string and named profiles.
 type Config struct {

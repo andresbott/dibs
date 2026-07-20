@@ -43,17 +43,18 @@ func newProfileView(name string) profileModel { return profileModel{name: name} 
 // visibleActions returns only the actions that apply to the profile's known
 // checkout state (sanity), in display order — inapplicable actions are hidden,
 // not greyed out. A not-checked-out profile can only be checked out; one
-// checked out by THIS machine (id) offers Status, Sync, then Check-in. A
-// foreign lock — held elsewhere, or a marker too corrupt to attribute — offers
-// only Checkout, whose dialog is where the lock can be stolen: Sync and
-// Check-in always refuse a foreign lock, so they are hidden. A nil sanity
-// result (the stat-only check hasn't returned yet) yields no actions, and the
-// box shows a "checking…" note instead. The lifecycle Runner stays the real guard.
-func visibleActions(r *sanity.Result, id ident.Ident) []string {
+// checked out by THIS profile (id + profileID) offers Status, Sync, then
+// Check-in. A foreign lock — held elsewhere, by another profile on this
+// machine, or a marker too corrupt to attribute — offers only Checkout, whose
+// dialog is where the lock can be stolen: Sync and Check-in always refuse a
+// foreign lock, so they are hidden. A nil sanity result (the stat-only check
+// hasn't returned yet) yields no actions, and the box shows a "checking…" note
+// instead. The lifecycle Runner stays the real guard.
+func visibleActions(r *sanity.Result, id ident.Ident, profileID string) []string {
 	switch {
 	case r == nil:
 		return nil
-	case r.CheckedOut && r.Marker != nil && r.Marker.OwnedBy(id.By, id.Host):
+	case r.CheckedOut && r.Marker != nil && r.Marker.OwnedBy(id.By, id.Host, profileID):
 		return []string{"Status", "Sync", "Check-in"}
 	default:
 		return []string{"Checkout"}
@@ -192,9 +193,9 @@ func actionGlyph(a string) string {
 // Actions box stays focused on the action list; before sanity has returned there
 // are no actions. While an action runs the whole list renders dimmed with no
 // cursor marker: nothing can be launched until the run finishes or is canceled.
-func renderActions(cursor, width int, res *sanity.Result, id ident.Ident, running bool) string {
+func renderActions(cursor, width int, res *sanity.Result, id ident.Ident, profileID string, running bool) string {
 	var b strings.Builder
-	for i, a := range visibleActions(res, id) {
+	for i, a := range visibleActions(res, id, profileID) {
 		if i > 0 {
 			b.WriteString("\n")
 		}

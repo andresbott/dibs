@@ -377,7 +377,7 @@ func TestCheckoutOpensConfirmModal(t *testing.T) {
 		checks: map[string]*sanity.Result{"work": {CheckedOut: false}},
 	}
 	m.profile = newProfileView("work")
-	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id), "Checkout")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Checkout")
 	m2, _ := m.updateProfile(keyMsg("enter"))
 	got := m2.(model)
 	if got.mode != modeConfirm {
@@ -473,7 +473,7 @@ func TestCheckoutForeignOpensWithStealUnchecked(t *testing.T) {
 		checkoutSteal: true, // stale from a previous open
 	}
 	m.profile = newProfileView("work")
-	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id), "Checkout")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Checkout")
 	m2, _ := m.updateProfile(keyMsg("enter"))
 	got := m2.(model)
 	if got.mode != modeConfirm || got.confirmKind != confirmCheckout {
@@ -527,7 +527,7 @@ func TestCheckoutStealTogglesAndPassesForce(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("steal checkout should override the foreign lock, got %v", res.err)
 	}
-	if got, ok, _ := marker.Read(remote); !ok || !got.OwnedBy(id.By, id.Host) {
+	if got, ok, _ := marker.Read(remote); !ok || !got.OwnedBy(id.By, id.Host, "") {
 		t.Errorf("the marker should now be ours, got %+v", got)
 	}
 }

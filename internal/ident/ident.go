@@ -1,6 +1,8 @@
 // Package ident resolves the two identity facts a checkout marker records:
 // By (the human-readable "who", from config or $USER@$HOSTNAME) and Host (this
-// machine's hostname). Ownership of a marker requires both to match.
+// machine's hostname). Ownership of a marker requires both to match, plus the
+// profile's UUID (marker.OwnedBy) — identity and host alone cannot tell two
+// profiles on the same machine apart.
 package ident
 
 import (

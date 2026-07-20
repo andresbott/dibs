@@ -202,8 +202,8 @@ func (r Runner) preflightProfile(ctx context.Context, name string, p config.Prof
 	// Ownership is absolute here: sync's --force only resolves same-file
 	// conflicts local-wins and checkin has no force at all.
 	// Overriding a foreign lock is checkout's job, never sync/checkin's.
-	if !m.OwnedBy(id.By, id.Host) {
-		return profilePlan{}, fmt.Errorf("profile %q is checked out by %s on %s (not this machine)", name, m.CheckedOutBy, m.Host)
+	if !m.OwnedBy(id.By, id.Host, p.ID) {
+		return profilePlan{}, fmt.Errorf("profile %q is checked out by %s on %s (not this profile)", name, m.CheckedOutBy, m.Host)
 	}
 
 	st, hasState, err := baseline.Load(name)

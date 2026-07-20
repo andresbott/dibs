@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"io"
 
@@ -57,7 +56,7 @@ func newSyncCmdWithRunner(cfgPath *string, r lifecycle.Runner) *cobra.Command {
 				out := cmd.OutOrStdout()
 				opts.OnApply = func(e lifecycle.Event) { printApplyEvent(out, e) }
 			}
-			rep, err := r.Sync(context.Background(), name, p, id, rel, opts)
+			rep, err := r.Sync(cmd.Context(), name, p, id, rel, opts)
 			if err != nil {
 				printReconcileReport(cmd.OutOrStdout(), name, rep) // show conflicts before the non-zero exit
 				return err

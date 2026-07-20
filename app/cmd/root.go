@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/andresbott/dibs/app/metainfo"
 	"github.com/andresbott/dibs/app/tui"
@@ -16,7 +18,14 @@ import (
 
 // Execute is the entry point for the command line.
 func Execute() {
-	if err := newRootCommand().Execute(); err != nil {
+	// Ctrl-C must reach the live rsync: the engine runs it in its own process
+	// group (so canceling can kill rsync's forked ssh/daemon helpers too), which
+	// takes it out of the terminal's foreground group — the terminal's SIGINT no
+	// longer hits it directly. Cancel the command context instead; the engine's
+	// cancel then signals the whole rsync group.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := newRootCommand().ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

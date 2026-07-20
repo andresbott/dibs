@@ -8,6 +8,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // runner executes a command (rsync or ssh). It is injectable so tests need not shell out.
@@ -56,6 +58,15 @@ func execRun(ctx context.Context, bin string, args []string, tee io.Writer) (run
 	if tee != nil {
 		cmd.Stdout = io.MultiWriter(&out, tee)
 	}
+	// rsync is never a single process: the daemon and ssh transports fork helpers
+	// (the ssh child, rsync's receiver) that hold the connection themselves, and a
+	// default cancel only SIGKILLs the parent — the helpers keep transferring and
+	// cmd.Wait blocks on the inherited stdout pipe until they finish. Run the tree
+	// as its own process group and signal the whole group: SIGTERM first so rsync
+	// can tear down cleanly, then WaitDelay escalates to killing the group.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+	cmd.WaitDelay = 5 * time.Second
 	err := cmd.Run()
 	res := runResult{stdout: out.String(), stderr: errb.String()}
 	var exitErr *exec.ExitError

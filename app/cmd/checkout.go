@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"io"
 
@@ -53,7 +52,7 @@ func newCheckoutCmdWithRunner(cfgPath *string, r lifecycle.Runner) *cobra.Comman
 				rel = args[1]
 			}
 			opts := lifecycle.Options{Force: force, DryRun: dryRun}
-			rep, err := r.Checkout(context.Background(), name, p, id, rel, opts)
+			rep, err := r.Checkout(cmd.Context(), name, p, id, rel, opts)
 			if err != nil {
 				return err
 			}

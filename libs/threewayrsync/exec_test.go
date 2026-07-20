@@ -3,8 +3,11 @@ package threewayrsync
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestExecRunCapturesStdout(t *testing.T) {
@@ -24,6 +27,69 @@ func TestExecRunCapturesStderrAndExitCode(t *testing.T) {
 	}
 	if res.exitCode != 23 || strings.TrimSpace(res.stderr) != "boom" {
 		t.Errorf("res = %#v", res)
+	}
+}
+
+// pidCapture is a tee writer that reports the first stdout line, parsed as a
+// PID, on ch while the command is still running.
+type pidCapture struct {
+	ch   chan int
+	buf  strings.Builder
+	sent bool
+}
+
+func (p *pidCapture) Write(b []byte) (int, error) {
+	if !p.sent {
+		p.buf.Write(b)
+		if s := p.buf.String(); strings.Contains(s, "\n") {
+			if pid, err := strconv.Atoi(strings.TrimSpace(s[:strings.Index(s, "\n")])); err == nil {
+				p.ch <- pid
+				p.sent = true
+			}
+		}
+	}
+	return len(b), nil
+}
+
+// Canceling must kill rsync's whole process tree, not just the parent: for the
+// daemon and ssh transports rsync forks helpers that hold the network socket
+// themselves and keep transferring after the parent dies. The sh + background
+// sleep stands in for that shape.
+func TestExecRunCancelKillsProcessGroup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pc := &pidCapture{ch: make(chan int, 1)}
+	done := make(chan error, 1)
+	go func() {
+		_, err := execRun(ctx, "sh", []string{"-c", "sleep 30 & echo $!; wait"}, pc)
+		done <- err
+	}()
+	var child int
+	select {
+	case child = <-pc.ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal("never saw the child pid on stdout")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("want an error after cancel")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("execRun did not return after cancel")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := syscall.Kill(child, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return // the forked child is gone too
+		}
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(child, syscall.SIGKILL)
+			t.Fatalf("forked child %d still alive after cancel (kill err=%v)", child, err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

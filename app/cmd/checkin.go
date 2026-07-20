@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"io"
 
@@ -49,7 +48,7 @@ func newCheckinCmdWithRunner(cfgPath *string, r lifecycle.Runner) *cobra.Command
 				r.RsyncBin = cfg.RsyncPath
 			}
 			opts := lifecycle.Options{DryRun: dryRun, Clean: clean, Abandon: abandon}
-			rep, err := r.Checkin(context.Background(), name, p, id, opts)
+			rep, err := r.Checkin(cmd.Context(), name, p, id, opts)
 			printCheckinReport(cmd.OutOrStdout(), name, rep, err)
 			return err
 		},

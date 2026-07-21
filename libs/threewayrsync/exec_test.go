@@ -93,6 +93,49 @@ func TestExecRunCancelKillsProcessGroup(t *testing.T) {
 	}
 }
 
+// A daemon-transport rsync blocked on socket I/O can sit through the group
+// SIGTERM (rsync handles signals only at safe points), so cancel must escalate
+// to SIGKILLing the whole group — Go's WaitDelay alone only kills the direct
+// child. The trap '' TERM tree stands in for that shape: ignored dispositions
+// survive exec, so the background sleep ignores the TERM too.
+func TestExecRunCancelEscalatesToKillWhenTermIgnored(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pc := &pidCapture{ch: make(chan int, 1)}
+	done := make(chan error, 1)
+	go func() {
+		_, err := execRun(ctx, "sh", []string{"-c", "trap '' TERM; sleep 30 & echo $!; wait"}, pc)
+		done <- err
+	}()
+	var child int
+	select {
+	case child = <-pc.ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal("never saw the child pid on stdout")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("want an error after cancel")
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("execRun did not return after cancel")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := syscall.Kill(child, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return // the TERM-ignoring forked child was SIGKILLed too
+		}
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(child, syscall.SIGKILL)
+			t.Fatalf("TERM-ignoring child %d survived cancel (kill err=%v)", child, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func TestErrorMessageIncludesStderr(t *testing.T) {
 	e := &Error{Op: "list", ExitCode: 23, Stderr: "boom"}
 	if got := e.Error(); !strings.Contains(got, "list") || !strings.Contains(got, "boom") {

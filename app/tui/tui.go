@@ -201,18 +201,25 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// handleCtrlC routes the global Ctrl+C. While an action runs, a hard quit
+// would orphan the live rsync (its context is never canceled on Quit), so it
+// opens the same cancel confirm as Esc; while the cancel's kill escalation is
+// already winding the run down there is nothing further to cancel and the key
+// is inert — the terminal result is the only way out. Elsewhere it stays an
+// immediate quit.
+func (m model) handleCtrlC() (tea.Model, tea.Cmd) {
+	if !m.running() {
+		return m, tea.Quit
+	}
+	if !m.profile.canceling && m.mode != modeConfirm {
+		m.openCancelConfirm()
+	}
+	return m, nil
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok && key.String() == "ctrl+c" {
-		// While an action runs, a hard quit would orphan the live rsync (its
-		// context is never canceled on Quit), so Ctrl+C is routed through the
-		// same cancel confirm as Esc. Elsewhere it stays an immediate quit.
-		if m.running() {
-			if m.mode != modeConfirm {
-				m.openCancelConfirm()
-			}
-			return m, nil
-		}
-		return m, tea.Quit
+		return m.handleCtrlC()
 	}
 	if ws, ok := msg.(tea.WindowSizeMsg); ok {
 		m.resize(ws)
@@ -704,6 +711,18 @@ func (m *model) applyActionResult(res actionResultMsg) {
 	}
 	m.profile.acting = false
 	m.pane = paneActions // the run is over; hand focus back to the action list
+	// This terminal result is what the canceling state was waiting for: the
+	// killed run has fully wound down, so exits are safe again. An error here is
+	// the cancellation itself (context.Canceled, or rsync dying to the signal),
+	// not a failure to report — show the Canceled note. No error means the run
+	// beat the kill and completed: nothing was canceled, show the real result.
+	if m.profile.canceling {
+		m.profile.canceling = false
+		if res.err != nil {
+			m.profile.canceled = true
+			return
+		}
+	}
 	rep := res.report
 	m.profile.actionReport = &rep
 	m.profile.actionErr = res.err
@@ -768,10 +787,14 @@ func (m *model) openCancelConfirm() {
 
 // escProfile handles Esc in the profile actions view. While an action is in
 // flight it opens the cancel confirm rather than silently leaving the work
-// running in the background; otherwise it returns to the profile list.
+// running in the background; otherwise it returns to the profile list. While
+// the cancel's kill escalation is already in flight there is nothing left to
+// cancel and leaving would orphan the dying rsync tree, so the key is inert.
 func (m model) escProfile() (tea.Model, tea.Cmd) {
 	if m.running() {
-		m.openCancelConfirm()
+		if !m.profile.canceling {
+			m.openCancelConfirm()
+		}
 		return m, nil
 	}
 	m.sub = subList
@@ -1123,7 +1146,7 @@ func (m model) mainView(dim bool) string {
 
 	footer := renderFooter(w)
 	if m.sub == subActions {
-		footer = renderProfileFooter(w, m.pane == paneActivity, m.running())
+		footer = renderProfileFooter(w, m.pane == paneActivity, m.running(), m.profile.canceling)
 		// A running sync owns the bottom row: counters + bar + the cancel hint.
 		// Other streaming actions (checkout/check-in) never set progress.
 		if m.profile.acting && m.profile.progress != nil {

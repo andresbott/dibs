@@ -15,6 +15,10 @@ import (
 // runner executes a command (rsync or ssh). It is injectable so tests need not shell out.
 type runner func(ctx context.Context, bin string, args []string, tee io.Writer) (runResult, error)
 
+// killGrace is how long a canceled rsync gets to shut down cleanly after the
+// group SIGTERM before the whole group is SIGKILLed.
+const killGrace = 5 * time.Second
+
 type runResult struct {
 	stdout   string
 	stderr   string
@@ -63,11 +67,28 @@ func execRun(ctx context.Context, bin string, args []string, tee io.Writer) (run
 	// default cancel only SIGKILLs the parent — the helpers keep transferring and
 	// cmd.Wait blocks on the inherited stdout pipe until they finish. Run the tree
 	// as its own process group and signal the whole group: SIGTERM first so rsync
-	// can tear down cleanly, then WaitDelay escalates to killing the group.
+	// can tear down cleanly (--partial-dir resume state, daemon connection), then
+	// SIGKILL the group after killGrace — an rsync blocked on socket I/O only acts
+	// on signals at its safe points and can sit through the SIGTERM indefinitely.
+	// Go's own WaitDelay escalation is not enough: it SIGKILLs only the direct
+	// child, never the group; it stays on solely to close the inherited pipes so
+	// Wait cannot block past the group kill.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
-	cmd.WaitDelay = 5 * time.Second
+	finished := make(chan struct{})
+	cmd.Cancel = func() error {
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		go func() {
+			select {
+			case <-finished: // exited within the grace: the pgid may be reused, do not kill it
+			case <-time.After(killGrace):
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+		}()
+		return err
+	}
+	cmd.WaitDelay = killGrace + time.Second
 	err := cmd.Run()
+	close(finished)
 	res := runResult{stdout: out.String(), stderr: errb.String()}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {

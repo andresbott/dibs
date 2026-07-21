@@ -254,3 +254,80 @@ func TestCancelClearsProgress(t *testing.T) {
 		t.Error("a canceled sync invalidates the stored Status totals")
 	}
 }
+
+// TestCylonTickAdvancesAndRearms: while an indeterminate sync runs, each tick
+// moves the eye and schedules the next tick; a stale or determinate tick does
+// neither.
+func TestCylonTickAdvancesAndRearms(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.acting = true
+	m.profile.progress = newSyncProgress(nil, false)
+	m.actionSeq = 3
+	next, cmd := m.Update(cylonTickMsg{seq: 3})
+	m = next.(model)
+	if m.profile.progress.cylonPos != 1 {
+		t.Errorf("tick should advance the eye, pos=%d want 1", m.profile.progress.cylonPos)
+	}
+	if cmd == nil {
+		t.Error("tick should re-arm while the indeterminate sync runs")
+	}
+
+	// Stale seq (canceled/superseded run): dropped, no re-arm.
+	next, cmd = m.Update(cylonTickMsg{seq: 2})
+	m = next.(model)
+	if m.profile.progress.cylonPos != 1 || cmd != nil {
+		t.Error("a stale tick must neither advance nor re-arm")
+	}
+
+	// Determinate run: the bar is proportional, no animation needed.
+	m.profile.progress = &syncProgress{totals: &kindCounts{Add: 1}, cylonDir: 1}
+	if _, cmd := m.Update(cylonTickMsg{seq: 3}); cmd != nil {
+		t.Error("a determinate sync must not re-arm the cylon tick")
+	}
+}
+
+// TestSyncLaunchStartsCylonTick: launching a sync without Status totals
+// returns a batch that includes the first tick (smoke: the launch cmd is
+// non-nil; the tick behavior itself is covered above).
+func TestSyncLaunchStartsCylonTick(t *testing.T) {
+	m := openActions(t, testConfig())
+	tm, _ := m.runSelectedAction("Sync")
+	m = tm.(model)
+	next, cmd := m.Update(keyMsg("y"))
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("confirming a sync should return the launch command batch")
+	}
+	if m.profile.progress == nil || m.profile.progress.totals != nil {
+		t.Fatal("this launch should be indeterminate")
+	}
+}
+
+// TestRunningSyncShowsProgressBar: while a sync with progress runs, the
+// bottom row is the progress line; other running actions (progress nil) keep
+// the plain running footer.
+func TestRunningSyncShowsProgressBar(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.acting = true
+	m.pane = paneActivity
+	m.profile.progress = newSyncProgress(nil, false)
+	m.resize(tea.WindowSizeMsg{Width: 100, Height: 30})
+	plain := ansi.Strip(m.View())
+	for _, want := range []string{"add 0", "mod 0", "del 0", "esc: Cancel"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("running sync view missing %q", want)
+		}
+	}
+	if !strings.Contains(plain, "▕") {
+		t.Error("running sync view should draw the progress bar")
+	}
+
+	m.profile.progress = nil // e.g. a running checkout
+	plain = ansi.Strip(m.View())
+	if strings.Contains(plain, "▕") {
+		t.Error("a run without progress keeps the plain footer")
+	}
+	if !strings.Contains(plain, ": Cancel") {
+		t.Error("the plain running footer should still hint esc: Cancel")
+	}
+}

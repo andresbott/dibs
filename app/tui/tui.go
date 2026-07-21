@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/andresbott/dibs/app/metainfo"
 	"github.com/andresbott/dibs/internal/config"
@@ -229,6 +230,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyRsyncCheck(res)
 		return m, nil
 	}
+	if res, ok := msg.(cylonTickMsg); ok {
+		p := m.profile.progress
+		if res.seq != m.actionSeq || !m.profile.acting || p == nil || p.totals != nil {
+			return m, nil // stale, or the run is over, or the bar is determinate
+		}
+		w := m.width
+		if w == 0 {
+			w = 80 // matches mainView's pre-resize fallback
+		}
+		p.advance(progressBarW(w, p))
+		return m, cylonTick(res.seq)
+	}
 	if res, ok := msg.(sanityResultMsg); ok {
 		r := res.result
 		m.checks[res.name] = &r
@@ -450,6 +463,16 @@ type statusResultMsg struct {
 	seq  int
 	st   status.ProfileStatus
 	err  error
+}
+
+// cylonTickMsg drives the indeterminate progress bar's bouncing eye; seq
+// stamps it so a canceled or superseded run's ticks are dropped.
+type cylonTickMsg struct{ seq int }
+
+// cylonTick schedules the next eye step. ~8 fps: smooth enough to read as
+// alive, cheap enough to be invisible in CPU terms.
+func cylonTick(seq int) tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return cylonTickMsg{seq: seq} })
 }
 
 // statusCmd runs status.Compute off the UI thread and delivers the outcome as a
@@ -1093,6 +1116,11 @@ func (m model) mainView(dim bool) string {
 	footer := renderFooter(w)
 	if m.sub == subActions {
 		footer = renderProfileFooter(w, m.pane == paneActivity, m.running())
+		// A running sync owns the bottom row: counters + bar + the cancel hint.
+		// Other streaming actions (checkout/check-in) never set progress.
+		if m.profile.acting && m.profile.progress != nil {
+			footer = renderProgressLine(w, m.profile.progress)
+		}
 	}
 	view := renderHeader(w, m.version, m.identity) + "\n" + panels + "\n" + footer
 	if m.err != nil {

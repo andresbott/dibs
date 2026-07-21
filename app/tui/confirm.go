@@ -522,5 +522,10 @@ func (m model) syncConfirmed() (tea.Model, tea.Cmd) {
 	m.cancel = cancel
 	m.actionSeq++
 	opts := lifecycle.Options{Force: m.syncLocalWins, AllowDeletes: m.syncAllowDeletes}
-	return m, syncCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)
+	cmds := []tea.Cmd{syncCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)}
+	// Without planned totals the bar is a bouncing eye, which needs a clock.
+	if m.profile.progress.totals == nil {
+		cmds = append(cmds, cylonTick(m.actionSeq))
+	}
+	return m, tea.Batch(cmds...)
 }

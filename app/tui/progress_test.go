@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/andresbott/dibs/internal/lifecycle"
 	"github.com/andresbott/dibs/internal/status"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestPlannedCounts: a Status result classifies into per-verb totals — pushes
@@ -60,5 +63,94 @@ func TestNewSyncProgress(t *testing.T) {
 	st := &status.ProfileStatus{Targets: []status.TargetStatus{{Push: []status.Change{{Path: "a"}}}}}
 	if p := newSyncProgress(st, false); p.totals == nil || p.totals.Add != 1 {
 		t.Errorf("totals should snapshot the status result, got %+v", p.totals)
+	}
+}
+
+// TestRenderProgressLineDeterminate: with totals the counters read done/total,
+// the esc hint is present, and the bar fill is proportional to overall done.
+func TestRenderProgressLineDeterminate(t *testing.T) {
+	p := &syncProgress{totals: &kindCounts{Add: 2, Modify: 1, Delete: 1}, cylonDir: 1}
+	p.done = kindCounts{Add: 1, Modify: 1}
+	plain := ansi.Strip(renderProgressLine(80, p))
+	for _, want := range []string{"add 1/2", "mod 1/1", "del 0/1", "esc: Cancel"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("progress line missing %q, got: %s", want, plain)
+		}
+	}
+	barW := progressBarW(80, p)
+	if got, want := strings.Count(plain, "█"), barW*2/4; got != want {
+		t.Errorf("2 of 4 done: want %d filled cells of %d, got %d", want, barW, got)
+	}
+}
+
+// TestRenderProgressLineIndeterminate: without totals the counters count up
+// (no "/") and the bar is a single bouncing eye.
+func TestRenderProgressLineIndeterminate(t *testing.T) {
+	p := newSyncProgress(nil, false)
+	p.done = kindCounts{Add: 4, Modify: 1}
+	p.cylonPos = 3
+	plain := ansi.Strip(renderProgressLine(80, p))
+	for _, want := range []string{"add 4", "mod 1", "del 0", "esc: Cancel"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("progress line missing %q, got: %s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "/") {
+		t.Errorf("count-up counters must not show totals, got: %s", plain)
+	}
+	if got := strings.Count(plain, "█"); got != 1 {
+		t.Errorf("cylon bar should have exactly one eye cell, got %d in: %s", got, plain)
+	}
+}
+
+// TestRenderProgressLineZeroTotals: a plan with nothing to do renders a full
+// bar instead of dividing by zero.
+func TestRenderProgressLineZeroTotals(t *testing.T) {
+	p := &syncProgress{totals: &kindCounts{}, cylonDir: 1}
+	plain := ansi.Strip(renderProgressLine(80, p))
+	if strings.Contains(plain, "░") || !strings.Contains(plain, "█") {
+		t.Errorf("zero-total plan should render a full bar, got: %s", plain)
+	}
+}
+
+// TestRenderProgressLineNarrow: a width too small for a bar degrades to the
+// truncated counters + hint without panicking.
+func TestRenderProgressLineNarrow(t *testing.T) {
+	p := newSyncProgress(nil, false)
+	line := renderProgressLine(20, p)
+	if w := lipgloss.Width(line); w > 20 {
+		t.Errorf("narrow line must fit its width, got %d cells", w)
+	}
+}
+
+// TestCylonAdvanceBounces: the eye walks to the track's last cell, reverses,
+// walks back to 0, and reverses again.
+func TestCylonAdvanceBounces(t *testing.T) {
+	p := &syncProgress{cylonDir: 1}
+	for i := 0; i < 4; i++ {
+		p.advance(5)
+	}
+	if p.cylonPos != 4 || p.cylonDir != 1 {
+		t.Fatalf("after 4 steps on a 5-track: pos=%d dir=%d, want pos=4 dir=1", p.cylonPos, p.cylonDir)
+	}
+	p.advance(5)
+	if p.cylonPos != 3 || p.cylonDir != -1 {
+		t.Fatalf("bounce at the right end: pos=%d dir=%d, want pos=3 dir=-1", p.cylonPos, p.cylonDir)
+	}
+	for i := 0; i < 3; i++ {
+		p.advance(5)
+	}
+	if p.cylonPos != 0 {
+		t.Fatalf("walk back: pos=%d, want 0", p.cylonPos)
+	}
+	p.advance(5)
+	if p.cylonPos != 1 || p.cylonDir != 1 {
+		t.Fatalf("bounce at the left end: pos=%d dir=%d, want pos=1 dir=1", p.cylonPos, p.cylonDir)
+	}
+	// A shrunk track clamps the position instead of stranding the eye outside.
+	p.cylonPos = 10
+	p.advance(5)
+	if p.cylonPos > 4 {
+		t.Fatalf("resize clamp: pos=%d, want <= 4", p.cylonPos)
 	}
 }

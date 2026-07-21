@@ -653,6 +653,9 @@ func (m *model) applySyncEvent(res syncEventMsg) {
 		return // stale straggler (canceled or superseded), or a since-left profile
 	}
 	m.profile.applied = append(m.profile.applied, res.event)
+	if m.profile.progress != nil {
+		m.profile.progress.done.inc(res.event.Kind)
+	}
 	m.profile.statusScroll = m.statusMaxScroll()
 }
 
@@ -674,6 +677,13 @@ func (m *model) applyActionResult(res actionResultMsg) {
 	rep := res.report
 	m.profile.actionReport = &rep
 	m.profile.actionErr = res.err
+	// The sync is over (finished, conflict-stopped, or failed): the progress
+	// bar goes away, and the Status totals it fed from are stale now that the
+	// trees changed — the next sync needs a fresh Status run for a real bar.
+	if m.profile.progress != nil {
+		m.profile.progress = nil
+		m.profile.result = nil
+	}
 	// A sync stopped by the engine's wipe valve gets its own dialog: the flat
 	// error text explains the CLI recovery, but in the TUI the natural follow-up
 	// ("yes, really delete them") is one button press away. The dialog carries
@@ -812,6 +822,7 @@ func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 		// Status result isn't masked by it in renderStatus.
 		m.profile.actionReport = nil
 		m.profile.actionErr = nil
+		m.profile.progress = nil
 		m.profile.canceled = false
 		m.profile.scanning = true
 		m.profile.statErr = nil

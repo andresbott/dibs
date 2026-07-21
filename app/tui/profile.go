@@ -18,19 +18,24 @@ import (
 // profile's roots are looked up fresh from cfg at render time, so only the name
 // is stored here.
 type profileModel struct {
-	name         string
-	cursor       int
-	checking     bool                  // a Status compute is in flight
-	result       *status.ProfileStatus // last successful Status result; nil until run
-	err          error                 // last Status error; nil if none
-	acting       bool                  // a mutating action (Checkout) is in flight
-	applied      []lifecycle.Event     // changes streamed live by the in-flight/last Sync or Check-in
-	actionReport *lifecycle.Report     // last successful action's outcome; nil until run
-	actionErr    error                 // last action error; nil if none
-	scanning     bool                  // a local file-stat scan is in flight (part of Status)
-	fileStats    *localstat.Stats      // last successful local scan; nil until run
-	statErr      error                 // last local-scan error; nil if none
-	statusScroll int                   // first visible Activity line; scrolled with ↑↓/shift+↑↓/PgUp/PgDn
+	name     string
+	cursor   int
+	checking bool                  // a Status compute is in flight
+	result   *status.ProfileStatus // last successful Status result; nil until run
+	err      error                 // last Status error; nil if none
+	acting   bool                  // a mutating action (Checkout) is in flight
+	applied  []lifecycle.Event     // changes streamed live by the in-flight/last Sync or Check-in
+	// progress tracks the in-flight sync's per-verb counters and bar: planned
+	// totals snapshotted from the last Status result at launch (nil totals =
+	// indeterminate), done counts fed by the event stream. nil while no sync
+	// is running and after its result (or cancel) lands.
+	progress     *syncProgress
+	actionReport *lifecycle.Report // last successful action's outcome; nil until run
+	actionErr    error             // last action error; nil if none
+	scanning     bool              // a local file-stat scan is in flight (part of Status)
+	fileStats    *localstat.Stats  // last successful local scan; nil until run
+	statErr      error             // last local-scan error; nil if none
+	statusScroll int               // first visible Activity line; scrolled with ↑↓/shift+↑↓/PgUp/PgDn
 	// opFilter narrows the Activity change list to one operation group (an opKey
 	// like "add → remote"); empty shows everything. Cycled with ←→ through the
 	// groups present in the current body, and reset whenever a new run starts.

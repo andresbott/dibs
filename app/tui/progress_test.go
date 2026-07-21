@@ -6,6 +6,7 @@ import (
 
 	"github.com/andresbott/dibs/internal/lifecycle"
 	"github.com/andresbott/dibs/internal/status"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -152,5 +153,104 @@ func TestCylonAdvanceBounces(t *testing.T) {
 	p.advance(5)
 	if p.cylonPos > 4 {
 		t.Fatalf("resize clamp: pos=%d, want <= 4", p.cylonPos)
+	}
+}
+
+// launchSync opens the sync dialog for the open profile and confirms it,
+// returning the model with the run launched.
+func launchSync(t *testing.T, m model) model {
+	t.Helper()
+	tm, _ := m.runSelectedAction("Sync")
+	m = tm.(model)
+	return update(t, m, keyMsg("y"))
+}
+
+// TestSyncLaunchSnapshotsTotals: a sync launched after a Status run carries
+// that result's per-verb totals (determinate bar).
+func TestSyncLaunchSnapshotsTotals(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.result = &status.ProfileStatus{CheckedOut: true, HasBaseline: true,
+		Targets: []status.TargetStatus{{
+			Push: []status.Change{{Path: "a"}, {Path: "b", Modify: true}},
+			Pull: []status.Change{{Path: "c"}},
+		}}}
+	m = launchSync(t, m)
+	p := m.profile.progress
+	if p == nil || p.totals == nil {
+		t.Fatal("sync after a Status run should carry determinate totals")
+	}
+	if p.totals.Add != 2 || p.totals.Modify != 1 {
+		t.Errorf("totals add=%d mod=%d, want add=2 mod=1", p.totals.Add, p.totals.Modify)
+	}
+}
+
+// TestSyncLaunchWithoutStatusIsIndeterminate: no Status run in memory means
+// no totals — the bar starts in cylon mode.
+func TestSyncLaunchWithoutStatusIsIndeterminate(t *testing.T) {
+	m := openActions(t, testConfig())
+	m = launchSync(t, m)
+	if m.profile.progress == nil {
+		t.Fatal("a launched sync should always track progress")
+	}
+	if m.profile.progress.totals != nil {
+		t.Error("no Status result: totals must be nil (indeterminate)")
+	}
+}
+
+// TestSyncEventIncrementsProgress: each streamed applied change bumps its
+// verb's done counter.
+func TestSyncEventIncrementsProgress(t *testing.T) {
+	m := openActions(t, testConfig()) // opens "alpha"
+	m.profile.acting = true
+	m.profile.progress = newSyncProgress(nil, false)
+	m.actionSeq = 2
+	ch := make(chan tea.Msg, 1)
+	m = update(t, m, syncEventMsg{name: "alpha", seq: 2, ch: ch,
+		event: lifecycle.Event{Kind: lifecycle.EventAdd, Side: lifecycle.SideRemote, Path: "a"}})
+	m = update(t, m, syncEventMsg{name: "alpha", seq: 2, ch: ch,
+		event: lifecycle.Event{Kind: lifecycle.EventDelete, Side: lifecycle.SideLocal, Path: "b"}})
+	if d := m.profile.progress.done; d.Add != 1 || d.Delete != 1 || d.Modify != 0 {
+		t.Errorf("done counts add=%d mod=%d del=%d, want add=1 mod=0 del=1", d.Add, d.Modify, d.Delete)
+	}
+	// A stale straggler (bumped seq) must not count.
+	m = update(t, m, syncEventMsg{name: "alpha", seq: 1, ch: ch,
+		event: lifecycle.Event{Kind: lifecycle.EventAdd, Path: "c"}})
+	if m.profile.progress.done.Add != 1 {
+		t.Error("a stale event must not increment progress")
+	}
+}
+
+// TestSyncResultClearsProgressAndTotals: when the sync's terminal result
+// lands, the progress state AND the stored Status result are cleared, so a
+// later sync without a fresh Status falls back to cylon mode.
+func TestSyncResultClearsProgressAndTotals(t *testing.T) {
+	m := openActions(t, testConfig()) // opens "alpha"
+	m.profile.acting = true
+	m.profile.progress = newSyncProgress(nil, false)
+	m.profile.result = &status.ProfileStatus{CheckedOut: true, HasBaseline: true}
+	m.actionSeq = 2
+	m = update(t, m, actionResultMsg{name: "alpha", seq: 2, report: lifecycle.Report{Action: "sync"}})
+	if m.profile.progress != nil {
+		t.Error("a finished sync should clear its progress state")
+	}
+	if m.profile.result != nil {
+		t.Error("a finished sync invalidates the stored Status totals")
+	}
+}
+
+// TestCancelClearsProgress: confirming the cancel dialog mid-sync clears the
+// progress state and the (now possibly stale) Status result.
+func TestCancelClearsProgress(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.acting = true
+	m.profile.progress = newSyncProgress(nil, false)
+	m.profile.result = &status.ProfileStatus{CheckedOut: true, HasBaseline: true}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = update(t, m, keyMsg("y")) // confirm the stop
+	if m.profile.progress != nil {
+		t.Error("a canceled sync should clear its progress state")
+	}
+	if m.profile.result != nil {
+		t.Error("a canceled sync invalidates the stored Status totals")
 	}
 }

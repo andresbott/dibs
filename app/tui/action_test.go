@@ -172,6 +172,24 @@ func drainStream(t *testing.T, first tea.Msg) ([]lifecycle.Event, actionResultMs
 	msg := first
 	for {
 		switch v := msg.(type) {
+		case tea.BatchMsg:
+			// syncConfirmed now batches syncCmd with cylonTick; keep the sync
+			// stream's first message (an event, or the terminal result for a
+			// zero-event run) and ignore the cylonTickMsg.
+			found := false
+			for _, cmd := range v {
+				switch m := cmd(); m.(type) {
+				case syncEventMsg, actionResultMsg:
+					msg = m
+					found = true
+				}
+				if found {
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("batch yielded no sync stream message")
+			}
 		case syncEventMsg:
 			events = append(events, v.event)
 			msg = waitForMsg(v.ch)()

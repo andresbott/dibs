@@ -416,6 +416,12 @@ func (m model) cancelAction() (tea.Model, tea.Cmd) {
 	m.profile.checking = false
 	m.profile.scanning = false
 	m.profile.canceled = true
+	// A canceled sync may have applied part of the plan, so the stored Status
+	// totals are stale; drop them with the progress state.
+	if m.profile.progress != nil {
+		m.profile.progress = nil
+		m.profile.result = nil
+	}
 	m.mode = modeMain
 	m.sub = subActions
 	m.pane = paneActions // the run is over; hand focus back to the action list
@@ -455,6 +461,7 @@ func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 	m.profile.canceled = false
 	m.profile.statusScroll = 0
 	m.profile.opFilter = ""
+	m.profile.progress = nil
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.actionSeq++
@@ -483,6 +490,7 @@ func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 	m.profile.canceled = false
 	m.profile.statusScroll = 0
 	m.profile.opFilter = ""
+	m.profile.progress = nil
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.actionSeq++
@@ -507,9 +515,17 @@ func (m model) syncConfirmed() (tea.Model, tea.Cmd) {
 	m.profile.canceled = false
 	m.profile.statusScroll = 0
 	m.profile.opFilter = ""
+	// Snapshot the last Status result (if one ran) into planned totals; the
+	// run's allow-deletes checkbox decides whether deletes are in the plan.
+	m.profile.progress = newSyncProgress(m.profile.result, m.syncAllowDeletes)
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.actionSeq++
 	opts := lifecycle.Options{Force: m.syncLocalWins, AllowDeletes: m.syncAllowDeletes}
-	return m, syncCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)
+	cmds := []tea.Cmd{syncCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)}
+	// Without planned totals the bar is a bouncing eye, which needs a clock.
+	if m.profile.progress.totals == nil {
+		cmds = append(cmds, cylonTick(m.actionSeq))
+	}
+	return m, tea.Batch(cmds...)
 }

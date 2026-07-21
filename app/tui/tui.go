@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/andresbott/dibs/app/metainfo"
 	"github.com/andresbott/dibs/internal/config"
@@ -228,6 +229,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if res, ok := msg.(rsyncCheckMsg); ok {
 		m.applyRsyncCheck(res)
 		return m, nil
+	}
+	if res, ok := msg.(cylonTickMsg); ok {
+		return m.applyCylonTick(res)
 	}
 	if res, ok := msg.(sanityResultMsg); ok {
 		r := res.result
@@ -452,6 +456,32 @@ type statusResultMsg struct {
 	err  error
 }
 
+// cylonTickMsg drives the indeterminate progress bar's bouncing eye; seq
+// stamps it so a canceled or superseded run's ticks are dropped.
+type cylonTickMsg struct{ seq int }
+
+// cylonTick schedules the next eye step. ~8 fps: smooth enough to read as
+// alive, cheap enough to be invisible in CPU terms.
+func cylonTick(seq int) tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return cylonTickMsg{seq: seq} })
+}
+
+// applyCylonTick advances the indeterminate bar's bouncing eye one step and
+// re-arms the tick. A stale tick (canceled or superseded run), a finished run,
+// or a determinate bar (planned totals known) stops the loop: no re-arm.
+func (m model) applyCylonTick(res cylonTickMsg) (tea.Model, tea.Cmd) {
+	p := m.profile.progress
+	if res.seq != m.actionSeq || !m.profile.acting || p == nil || p.totals != nil {
+		return m, nil // stale, or the run is over, or the bar is determinate
+	}
+	w := m.width
+	if w == 0 {
+		w = 80 // matches mainView's pre-resize fallback
+	}
+	p.advance(progressBarW(w, p))
+	return m, cylonTick(res.seq)
+}
+
 // statusCmd runs status.Compute off the UI thread and delivers the outcome as a
 // statusResultMsg. seq is the launch stamp so a result abandoned by a cancel (or
 // a newer run) can be recognised and dropped in applyStatusResult.
@@ -653,6 +683,9 @@ func (m *model) applySyncEvent(res syncEventMsg) {
 		return // stale straggler (canceled or superseded), or a since-left profile
 	}
 	m.profile.applied = append(m.profile.applied, res.event)
+	if m.profile.progress != nil {
+		m.profile.progress.done.inc(res.event.Kind)
+	}
 	m.profile.statusScroll = m.statusMaxScroll()
 }
 
@@ -674,6 +707,13 @@ func (m *model) applyActionResult(res actionResultMsg) {
 	rep := res.report
 	m.profile.actionReport = &rep
 	m.profile.actionErr = res.err
+	// The sync is over (finished, conflict-stopped, or failed): the progress
+	// bar goes away, and the Status totals it fed from are stale now that the
+	// trees changed — the next sync needs a fresh Status run for a real bar.
+	if m.profile.progress != nil {
+		m.profile.progress = nil
+		m.profile.result = nil
+	}
 	// A sync stopped by the engine's wipe valve gets its own dialog: the flat
 	// error text explains the CLI recovery, but in the TUI the natural follow-up
 	// ("yes, really delete them") is one button press away. The dialog carries
@@ -812,6 +852,7 @@ func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 		// Status result isn't masked by it in renderStatus.
 		m.profile.actionReport = nil
 		m.profile.actionErr = nil
+		m.profile.progress = nil
 		m.profile.canceled = false
 		m.profile.scanning = true
 		m.profile.statErr = nil
@@ -1061,6 +1102,7 @@ func (m model) mainView(dim bool) string {
 	}
 	detailsBody := renderDetails(name, m.cfg.Profiles[name], m.checks[name], leftW-2)
 	if m.sub == subActions {
+		detailsBody += pendingBlock(m.profile.result)
 		detailsBody += contentsBlock(m.profile.fileStats, m.profile.scanning, m.profile.statErr)
 	}
 
@@ -1082,6 +1124,11 @@ func (m model) mainView(dim bool) string {
 	footer := renderFooter(w)
 	if m.sub == subActions {
 		footer = renderProfileFooter(w, m.pane == paneActivity, m.running())
+		// A running sync owns the bottom row: counters + bar + the cancel hint.
+		// Other streaming actions (checkout/check-in) never set progress.
+		if m.profile.acting && m.profile.progress != nil {
+			footer = renderProgressLine(w, m.profile.progress)
+		}
 	}
 	view := renderHeader(w, m.version, m.identity) + "\n" + panels + "\n" + footer
 	if m.err != nil {

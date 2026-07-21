@@ -231,16 +231,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if res, ok := msg.(cylonTickMsg); ok {
-		p := m.profile.progress
-		if res.seq != m.actionSeq || !m.profile.acting || p == nil || p.totals != nil {
-			return m, nil // stale, or the run is over, or the bar is determinate
-		}
-		w := m.width
-		if w == 0 {
-			w = 80 // matches mainView's pre-resize fallback
-		}
-		p.advance(progressBarW(w, p))
-		return m, cylonTick(res.seq)
+		return m.applyCylonTick(res)
 	}
 	if res, ok := msg.(sanityResultMsg); ok {
 		r := res.result
@@ -473,6 +464,22 @@ type cylonTickMsg struct{ seq int }
 // alive, cheap enough to be invisible in CPU terms.
 func cylonTick(seq int) tea.Cmd {
 	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return cylonTickMsg{seq: seq} })
+}
+
+// applyCylonTick advances the indeterminate bar's bouncing eye one step and
+// re-arms the tick. A stale tick (canceled or superseded run), a finished run,
+// or a determinate bar (planned totals known) stops the loop: no re-arm.
+func (m model) applyCylonTick(res cylonTickMsg) (tea.Model, tea.Cmd) {
+	p := m.profile.progress
+	if res.seq != m.actionSeq || !m.profile.acting || p == nil || p.totals != nil {
+		return m, nil // stale, or the run is over, or the bar is determinate
+	}
+	w := m.width
+	if w == 0 {
+		w = 80 // matches mainView's pre-resize fallback
+	}
+	p.advance(progressBarW(w, p))
+	return m, cylonTick(res.seq)
 }
 
 // statusCmd runs status.Compute off the UI thread and delivers the outcome as a

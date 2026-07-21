@@ -41,6 +41,12 @@ type profileModel struct {
 	// groups present in the current body, and reset whenever a new run starts.
 	opFilter string
 	canceled bool // the in-flight action was stopped via Esc; shows a "Canceled." note
+	// canceling is the window between confirming the cancel and the dying run's
+	// terminal result: the group SIGTERM→SIGKILL escalation can take several
+	// seconds, and quitting during it would orphan the rsync tree. Activity shows
+	// "Canceling…" and every exit path is inert until the state resolves to
+	// canceled (or to the real result, if the run finished before the kill).
+	canceling bool
 }
 
 func newProfileView(name string) profileModel { return profileModel{name: name} }
@@ -153,7 +159,7 @@ func appliedOpKeys(events []lifecycle.Event) []string {
 // filterable; every other body (errors, conflicts, placeholders) yields none.
 func (p profileModel) activityOpKeys() []string {
 	switch {
-	case p.canceled:
+	case p.canceling, p.canceled:
 		return nil
 	case p.acting:
 		return appliedOpKeys(p.applied)
@@ -251,6 +257,11 @@ func renderToggleHelp() string {
 // the report is empty) still renders as an error rather than an empty body.
 func renderStatus(p profileModel, width int) string {
 	switch {
+	case p.canceling:
+		// The stop was confirmed but the rsync tree is still being brought down
+		// (SIGTERM, then SIGKILL after a grace); resolves to Canceled. — or to
+		// the run's real result if it finished before the kill landed.
+		return "Canceling… stopping rsync (a few seconds at most)."
 	case p.canceled:
 		// Wins over any leftover state (a prior result, a dropped straggler's report)
 		// until the next action clears it.

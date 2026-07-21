@@ -401,29 +401,35 @@ func (m model) activateConfirm() (tea.Model, tea.Cmd) {
 }
 
 // cancelAction stops the in-flight action the confirm modal was guarding. For a
-// streaming mutation it cancels the context — killing the live rsync via
-// exec.CommandContext; for Status there is nothing to kill (m.cancel is nil), so
-// it only abandons the result. Either way it bumps actionSeq so the run's
-// straggler messages are dropped, marks the profile canceled for the "Canceled."
-// note, and returns to the profile's actions view.
+// streaming mutation it cancels the context — signaling the live rsync tree via
+// exec.CommandContext — and enters the canceling state: the SIGTERM→SIGKILL
+// escalation can take several seconds, so the run is not over yet. actionSeq is
+// kept so the dying run's terminal result is recognized (applyActionResult is
+// what resolves canceling to the "Canceled." note), and until it arrives every
+// exit path is inert — quitting would orphan the rsync tree mid-escalation.
+// For Status there is nothing to kill (m.cancel is nil), so the run is abandoned
+// immediately: actionSeq is bumped to drop its stragglers and the profile is
+// marked canceled right away.
 func (m model) cancelAction() (tea.Model, tea.Cmd) {
-	if m.cancel != nil {
-		m.cancel()
-		m.cancel = nil
-	}
-	m.actionSeq++
-	m.profile.acting = false
-	m.profile.checking = false
-	m.profile.scanning = false
-	m.profile.canceled = true
 	// A canceled sync may have applied part of the plan, so the stored Status
-	// totals are stale; drop them with the progress state.
+	// totals are stale; drop them with the progress state (either path).
 	if m.profile.progress != nil {
 		m.profile.progress = nil
 		m.profile.result = nil
 	}
 	m.mode = modeMain
 	m.sub = subActions
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+		m.profile.canceling = true
+		return m, nil // still acting: the view stays locked on Activity until the run dies
+	}
+	m.actionSeq++
+	m.profile.acting = false
+	m.profile.checking = false
+	m.profile.scanning = false
+	m.profile.canceled = true
 	m.pane = paneActions // the run is over; hand focus back to the action list
 	return m, nil
 }

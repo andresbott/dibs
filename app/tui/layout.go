@@ -45,10 +45,13 @@ func renderFooter(width int) string {
 // hints are pane-aware: the Actions pane offers Run/Select plus a Tab to the
 // Activity panel; the Activity pane offers the scroll keys plus a Tab back.
 // While an action runs only monitoring and canceling apply, so the bar shows
-// just those.
-func renderProfileFooter(width int, activityFocused, running bool) string {
+// just those; while the cancel's kill escalation is winding the run down every
+// key is inert, so the bar says only that.
+func renderProfileFooter(width int, activityFocused, running, canceling bool) string {
 	var parts []string
 	switch {
+	case canceling:
+		parts = []string{helpTextStyle.Render("Stopping — please wait…")}
 	case running:
 		parts = []string{
 			hint("↑↓/⇧↑↓/PgUp/PgDn", "Scroll"), hint("←→", "Filter"), hint("esc", "Cancel"),

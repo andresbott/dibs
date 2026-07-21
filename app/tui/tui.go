@@ -1102,6 +1102,7 @@ func (m model) mainView(dim bool) string {
 	}
 	detailsBody := renderDetails(name, m.cfg.Profiles[name], m.checks[name], leftW-2)
 	if m.sub == subActions {
+		detailsBody += pendingBlock(m.profile.result)
 		detailsBody += contentsBlock(m.profile.fileStats, m.profile.scanning, m.profile.statErr)
 	}
 

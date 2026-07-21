@@ -7,6 +7,7 @@ import (
 	"github.com/andresbott/dibs/internal/config"
 	"github.com/andresbott/dibs/internal/localstat"
 	"github.com/andresbott/dibs/internal/sanity"
+	"github.com/andresbott/dibs/internal/status"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -169,6 +170,58 @@ func contentsBlock(stats *localstat.Stats, scanning bool, err error) string {
 	b.WriteString("\n   " + detailLabel("Folders") + groupThousands(stats.Dirs))
 	b.WriteString("\n   " + detailLabel("Files") + groupThousands(stats.Files))
 	b.WriteString("\n   " + detailLabel("Size") + humanBytes(stats.Bytes))
+	return b.String()
+}
+
+// pendingBlock is the sync-plan summary appended to the Details box after the
+// Status action ran: a faint "Pending" header and one aligned count row per
+// verb present in the plan (Add/Modify/Delete/Conflict/Ignored) — zero rows
+// are dropped so the box stays compact. A plan with nothing pending reads
+// "in sync" (ignored paths still counted: a sync never touches them either
+// way). Empty while no Status result is in, or when the result carries no
+// plan (not checked out, or no local baseline). Like contentsBlock, the
+// returned string leads with "\n" when non-empty so it appends cleanly.
+func pendingBlock(st *status.ProfileStatus) string {
+	if st == nil || !st.CheckedOut || !st.HasBaseline {
+		return ""
+	}
+	var add, modify, del, conflict, ignored int
+	for _, t := range st.Targets {
+		for _, c := range t.Push {
+			if c.Modify {
+				modify++
+			} else {
+				add++
+			}
+		}
+		for _, c := range t.Pull {
+			if c.Modify {
+				modify++
+			} else {
+				add++
+			}
+		}
+		del += len(t.LocalDeletes) + len(t.RemoteDeletes)
+		conflict += len(t.Conflicts)
+		ignored += len(t.Ignored)
+	}
+	var b strings.Builder
+	b.WriteString("\n\n " + labelStyle.Render("Pending"))
+	if add+modify+del+conflict == 0 {
+		b.WriteString("\n   " + okStyle.Render("in sync"))
+	}
+	// Three leading spaces align the value column with the marked rows above,
+	// mirroring contentsBlock.
+	row := func(label string, n int) {
+		if n > 0 {
+			b.WriteString("\n   " + detailLabel(label) + groupThousands(n))
+		}
+	}
+	row("Add", add)
+	row("Modify", modify)
+	row("Delete", del)
+	row("Conflict", conflict)
+	row("Ignored", ignored)
 	return b.String()
 }
 

@@ -7,7 +7,10 @@ import (
 	"github.com/andresbott/dibs/internal/config"
 	"github.com/andresbott/dibs/internal/localstat"
 	"github.com/andresbott/dibs/internal/sanity"
+	"github.com/andresbott/dibs/internal/status"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestRenderHeaderFitsAndShowsIdentity(t *testing.T) {
@@ -194,6 +197,70 @@ func TestContentsBlockShowsStats(t *testing.T) {
 	for _, want := range []string{"Contents", "Folders", "12", "Files", "3,456", "Size", "1.5 KB"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("contentsBlock missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestPendingBlockIdleIsEmpty(t *testing.T) {
+	if got := pendingBlock(nil); got != "" {
+		t.Errorf("pendingBlock without a Status result should be empty, got %q", got)
+	}
+}
+
+func TestPendingBlockShowsPerVerbCounts(t *testing.T) {
+	st := &status.ProfileStatus{CheckedOut: true, HasBaseline: true, Targets: []status.TargetStatus{
+		{
+			Push:          []status.Change{{Path: "a"}, {Path: "b", Modify: true}},
+			Pull:          []status.Change{{Path: "c"}},
+			LocalDeletes:  []string{"d"},
+			RemoteDeletes: []string{"e", "f"},
+			Conflicts:     []string{"g"},
+			Ignored:       []string{"h", "i", "j"},
+		},
+		{Push: []status.Change{{Path: "k", Modify: true}}},
+	}}
+	got := pendingBlock(st)
+	for _, want := range []string{"Pending", "Add", "2", "Modify", "Delete", "3", "Conflict", "1", "Ignored"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("pendingBlock missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestPendingBlockInSync(t *testing.T) {
+	st := &status.ProfileStatus{CheckedOut: true, HasBaseline: true,
+		Targets: []status.TargetStatus{{Ignored: []string{"x"}}}}
+	got := pendingBlock(st)
+	if !strings.Contains(got, "in sync") {
+		t.Errorf("pendingBlock with no pending changes should say in sync, got %q", got)
+	}
+	if !strings.Contains(got, "Ignored") || !strings.Contains(got, "1") {
+		t.Errorf("pendingBlock should still count ignored paths, got %q", got)
+	}
+	for _, banned := range []string{"Add", "Modify", "Delete", "Conflict"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("in-sync pendingBlock should drop the zero %q row, got %q", banned, got)
+		}
+	}
+}
+
+func TestPendingBlockNoBaseline(t *testing.T) {
+	if got := pendingBlock(&status.ProfileStatus{CheckedOut: true}); got != "" {
+		t.Errorf("pendingBlock without a baseline has no plan to count, got %q", got)
+	}
+}
+
+// TestDetailsShowPendingStatsAfterStatus: once a Status result is in, the
+// Details box carries the per-verb pending summary alongside Contents.
+func TestDetailsShowPendingStatsAfterStatus(t *testing.T) {
+	m := openActions(t, testConfig())
+	m.profile.result = &status.ProfileStatus{CheckedOut: true, HasBaseline: true,
+		Targets: []status.TargetStatus{{Push: []status.Change{{Path: "a"}}, Ignored: []string{"h"}}}}
+	m.resize(tea.WindowSizeMsg{Width: 100, Height: 40})
+	view := ansi.Strip(m.View())
+	for _, want := range []string{"Pending", "Add", "Ignored"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Details after Status missing %q", want)
 		}
 	}
 }

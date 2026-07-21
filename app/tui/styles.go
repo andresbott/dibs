@@ -34,6 +34,9 @@ var (
 	headerIDStyle    = lipgloss.NewStyle().Foreground(colDim)
 )
 
+// cylonEyeStyle paints the indeterminate bar's scanner eye in the accent pink.
+var cylonEyeStyle = lipgloss.NewStyle().Foreground(colAccent)
+
 // focusLabelStyle highlights the focused form field's label in the accent
 // colour; that field's box border switches to the accent colour too (see
 // fieldBox in form.go).

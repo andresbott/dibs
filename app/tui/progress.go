@@ -31,12 +31,13 @@ func (c kindCounts) total() int { return c.Add + c.Modify + c.Delete }
 // syncProgress is the live progress of the in-flight sync: the planned totals
 // snapshotted from the last Status run (nil when none ran — the bar is then
 // indeterminate), the done counts incremented per streamed event, and the
-// bouncing-eye position/direction for the indeterminate bar.
+// bouncing-eye position/direction/edge-dwell for the indeterminate bar.
 type syncProgress struct {
-	totals   *kindCounts
-	done     kindCounts
-	cylonPos int
-	cylonDir int
+	totals    *kindCounts
+	done      kindCounts
+	cylonPos  int
+	cylonDir  int
+	cylonHold int // ticks left to sit squashed on a track end before bouncing back
 }
 
 // newSyncProgress starts progress tracking for one sync run. st is the last
@@ -83,9 +84,10 @@ func transferEventKind(modify bool) lifecycle.EventKind {
 // renderProgressLine is the bottom row while a sync runs: per-verb counters on
 // the left, a progress bar filling the middle, and the cancel hint on the
 // right. With planned totals (a prior Status run) the counters read done/total
-// and the bar fills proportionally; without them the counters count up and the
-// bar shows a bouncing eye. A width too narrow for a useful bar degrades to
-// the truncated counters + hint.
+// and the bar fills proportionally; without them the counters count up and a
+// short scanner track shows a bouncing eye, the leftover width padded so the
+// hint stays on the right edge. A width too narrow for a useful bar degrades
+// to the truncated counters + hint.
 func renderProgressLine(width int, p *syncProgress) string {
 	if width <= 0 {
 		width = 80 // matches mainView's pre-resize fallback
@@ -95,7 +97,11 @@ func renderProgressLine(width int, p *syncProgress) string {
 	if barW < 5 {
 		return ansi.Truncate(left+right, width, "")
 	}
-	return left + "▕" + progressTrack(barW, p) + "▏" + right
+	pad := width - lipgloss.Width(left) - lipgloss.Width(right) - barW - 2
+	if pad < 0 {
+		pad = 0
+	}
+	return left + "▕" + progressTrack(barW, p) + "▏" + strings.Repeat(" ", pad) + right
 }
 
 // progressEnds renders the line's fixed ends: the counters (left) and the
@@ -111,13 +117,21 @@ func progressEnds(p *syncProgress) (left, right string) {
 	return " " + counters + "  ", "  " + hint("esc", "Cancel")
 }
 
+// cylonBarW is the indeterminate scanner's fixed track width: short on
+// purpose — the eye reads as a loading pulse, not a fill level.
+const cylonBarW = 24
+
 // progressBarW is the bar's inner cell count for a terminal width: what is
-// left between the counters, the hint, and the bar's two end caps. The tick
-// handler uses it too, so the eye advances over exactly the track that is
-// drawn.
+// left between the counters, the hint, and the bar's two end caps. An
+// indeterminate bar is capped at the short scanner track. The tick handler
+// uses it too, so the eye advances over exactly the track that is drawn.
 func progressBarW(width int, p *syncProgress) int {
 	left, right := progressEnds(p)
-	return width - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	w := width - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	if p.totals == nil && w > cylonBarW {
+		w = cylonBarW
+	}
+	return w
 }
 
 // progressTrack renders the barW inner cells: a proportional fill when totals
@@ -126,14 +140,7 @@ func progressBarW(width int, p *syncProgress) int {
 // eye otherwise.
 func progressTrack(barW int, p *syncProgress) string {
 	if p.totals == nil {
-		pos := p.cylonPos
-		if pos > barW-1 {
-			pos = barW - 1
-		}
-		if pos < 0 {
-			pos = 0
-		}
-		return strings.Repeat("░", pos) + "█" + strings.Repeat("░", barW-1-pos)
+		return cylonTrack(barW, p.cylonPos)
 	}
 	fill := barW
 	if t := p.totals.total(); t > 0 {
@@ -145,12 +152,44 @@ func progressTrack(barW int, p *syncProgress) string {
 	return strings.Repeat("█", fill) + strings.Repeat("░", barW-fill)
 }
 
+// cylonTrack renders the scanner eye on an otherwise empty track: an
+// accent-pink block that stretches with distance from the track ends —
+// squashed to a single cell at a border, one extra cell per side a cell in,
+// two per side from there on — so the sweep reads as a bounce.
+func cylonTrack(barW, pos int) string {
+	if pos > barW-1 {
+		pos = barW - 1
+	}
+	if pos < 0 {
+		pos = 0
+	}
+	wings := pos // distance to the nearest end caps the wing span
+	if d := barW - 1 - pos; d < wings {
+		wings = d
+	}
+	if wings > 2 {
+		wings = 2
+	}
+	return strings.Repeat(" ", pos-wings) +
+		cylonEyeStyle.Render(strings.Repeat("█", 2*wings+1)) +
+		strings.Repeat(" ", barW-1-pos-wings)
+}
+
+// cylonEdgeHold is how many ticks the eye sits squashed on a track end before
+// bouncing back — the pause that makes the squash read as a bounce.
+const cylonEdgeHold = 2
+
 // advance moves the cylon eye one cell along a barW-wide track, bouncing at
-// the ends. The position is clamped into the track first so a terminal resize
-// can never strand the eye outside the bar.
+// the ends with a short dwell on each end cell. The position is clamped into
+// the track first so a terminal resize can never strand the eye outside the
+// bar.
 func (p *syncProgress) advance(barW int) {
 	if barW < 2 {
 		p.cylonPos = 0
+		return
+	}
+	if p.cylonHold > 0 {
+		p.cylonHold--
 		return
 	}
 	if p.cylonDir == 0 {
@@ -163,4 +202,7 @@ func (p *syncProgress) advance(barW int) {
 		p.cylonDir = -p.cylonDir
 	}
 	p.cylonPos += p.cylonDir
+	if p.cylonPos == 0 || p.cylonPos == barW-1 {
+		p.cylonHold = cylonEdgeHold
+	}
 }

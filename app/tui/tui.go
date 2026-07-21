@@ -467,10 +467,11 @@ type statusResultMsg struct {
 // stamps it so a canceled or superseded run's ticks are dropped.
 type cylonTickMsg struct{ seq int }
 
-// cylonTick schedules the next eye step. ~8 fps: smooth enough to read as
-// alive, cheap enough to be invisible in CPU terms.
+// cylonTick schedules the next eye step. ~20 fps: a fast sweep — the pause
+// that sells the bounce comes from the edge dwell in advance, not the tick
+// rate.
 func cylonTick(seq int) tea.Cmd {
-	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return cylonTickMsg{seq: seq} })
+	return tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg { return cylonTickMsg{seq: seq} })
 }
 
 // applyCylonTick advances the indeterminate bar's bouncing eye one step and

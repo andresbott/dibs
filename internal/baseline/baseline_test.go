@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -244,5 +245,39 @@ func TestSaveCreatesDirectory(t *testing.T) {
 	got, ok, err := Load("p")
 	if err != nil || !ok || got.Profile != "p" {
 		t.Errorf("Load after nested Save: ok=%v err=%v", ok, err)
+	}
+}
+
+// A released baseline round-trips its stamp; an active one neither reports
+// released nor serializes the field at all (older dibs versions unmarshal the
+// state file strictly by shape, so absence keeps old files byte-compatible).
+func TestReleasedAtRoundTrip(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	released := time.Unix(5000, 0).UTC()
+	if err := Save(&State{Profile: "rel", ReleasedAt: released}); err != nil {
+		t.Fatal(err)
+	}
+	st, ok, err := Load("rel")
+	if err != nil || !ok {
+		t.Fatalf("load: ok=%v err=%v", ok, err)
+	}
+	if !st.IsReleased() || !st.ReleasedAt.Equal(released) {
+		t.Errorf("released state = %+v, want IsReleased with the saved stamp", st)
+	}
+
+	if err := Save(&State{Profile: "act"}); err != nil {
+		t.Fatal(err)
+	}
+	st, _, _ = Load("act")
+	if st.IsReleased() {
+		t.Error("a zero ReleasedAt must not report released")
+	}
+	dir, _ := Dir()
+	data, err := os.ReadFile(filepath.Join(dir, "act.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "released_at") {
+		t.Errorf("active state must omit released_at, got:\n%s", data)
 	}
 }

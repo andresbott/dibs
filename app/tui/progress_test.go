@@ -85,12 +85,15 @@ func TestRenderProgressLineDeterminate(t *testing.T) {
 }
 
 // TestRenderProgressLineIndeterminate: without totals the counters count up
-// (no "/") and the bar is a single bouncing eye.
+// (no "/"), the track is capped at the short scanner width, the line still
+// spans the full width (padding keeps the hint on the right edge), and the
+// eye is a three-cell scanner mid-track that narrows to one cell at the ends.
 func TestRenderProgressLineIndeterminate(t *testing.T) {
 	p := newSyncProgress(nil, false)
 	p.done = kindCounts{Add: 4, Modify: 1}
 	p.cylonPos = 3
-	plain := ansi.Strip(renderProgressLine(80, p))
+	line := renderProgressLine(80, p)
+	plain := ansi.Strip(line)
 	for _, want := range []string{"add 4", "mod 1", "del 0", "esc: Cancel"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("progress line missing %q, got: %s", want, plain)
@@ -99,8 +102,22 @@ func TestRenderProgressLineIndeterminate(t *testing.T) {
 	if strings.Contains(plain, "/") {
 		t.Errorf("count-up counters must not show totals, got: %s", plain)
 	}
-	if got := strings.Count(plain, "█"); got != 1 {
-		t.Errorf("cylon bar should have exactly one eye cell, got %d in: %s", got, plain)
+	if got := lipgloss.Width(line); got != 80 {
+		t.Errorf("padded line should span the full width, got %d cells", got)
+	}
+	if got := progressBarW(80, p); got != cylonBarW {
+		t.Errorf("indeterminate track should cap at %d cells, got %d", cylonBarW, got)
+	}
+	if got := strings.Count(plain, "█"); got != 5 {
+		t.Errorf("mid-track eye should be core + two wings per side (5 cells), got %d in: %s", got, plain)
+	}
+	p.cylonPos = 1
+	if got := strings.Count(ansi.Strip(renderProgressLine(80, p)), "█"); got != 3 {
+		t.Errorf("one cell from the border the eye squashes to 3 cells, got %d", got)
+	}
+	p.cylonPos = 0
+	if got := strings.Count(ansi.Strip(renderProgressLine(80, p)), "█"); got != 1 {
+		t.Errorf("at the track border the eye squashes to its core, got %d cells", got)
 	}
 }
 
@@ -124,8 +141,9 @@ func TestRenderProgressLineNarrow(t *testing.T) {
 	}
 }
 
-// TestCylonAdvanceBounces: the eye walks to the track's last cell, reverses,
-// walks back to 0, and reverses again.
+// TestCylonAdvanceBounces: the eye walks to the track's last cell, dwells
+// there for cylonEdgeHold ticks, reverses, walks back to 0, dwells, and
+// reverses again.
 func TestCylonAdvanceBounces(t *testing.T) {
 	p := &syncProgress{cylonDir: 1}
 	for i := 0; i < 4; i++ {
@@ -133,6 +151,12 @@ func TestCylonAdvanceBounces(t *testing.T) {
 	}
 	if p.cylonPos != 4 || p.cylonDir != 1 {
 		t.Fatalf("after 4 steps on a 5-track: pos=%d dir=%d, want pos=4 dir=1", p.cylonPos, p.cylonDir)
+	}
+	for i := 0; i < cylonEdgeHold; i++ {
+		p.advance(5)
+		if p.cylonPos != 4 {
+			t.Fatalf("dwell tick %d: eye should sit on the end, pos=%d", i, p.cylonPos)
+		}
 	}
 	p.advance(5)
 	if p.cylonPos != 3 || p.cylonDir != -1 {
@@ -143,6 +167,9 @@ func TestCylonAdvanceBounces(t *testing.T) {
 	}
 	if p.cylonPos != 0 {
 		t.Fatalf("walk back: pos=%d, want 0", p.cylonPos)
+	}
+	for i := 0; i < cylonEdgeHold; i++ {
+		p.advance(5)
 	}
 	p.advance(5)
 	if p.cylonPos != 1 || p.cylonDir != 1 {

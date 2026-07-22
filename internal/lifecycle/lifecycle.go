@@ -165,6 +165,34 @@ type profilePlan struct {
 	ignore        []string // the profile's ignore patterns, handed to the engine
 }
 
+// loadActiveState loads the profile's checkout state and verifies it is usable
+// for a sync/checkin: present, not a released resume token, and recorded
+// against the roots the profile currently configures.
+func loadActiveState(name string, p config.Profile) (*baseline.State, error) {
+	st, hasState, err := baseline.Load(name)
+	if err != nil {
+		return nil, err
+	}
+	// A released state (checkin kept it as a resume token) is treated exactly
+	// like no state: its manifest describes the moment of release, not the
+	// present, and merging against it would misclassify later remote changes.
+	if !hasState || st.IsReleased() {
+		return nil, fmt.Errorf("no local baseline for %q — re-checkout on this machine to establish one", name)
+	}
+	// The baseline is only meaningful against the roots it was recorded from: a
+	// profile whose roots were edited since checkout (or recreated under the same
+	// name) would merge the manifest against the wrong trees, manufacturing
+	// deletes and conflicts. Pre-binding state files (empty roots) are accepted.
+	localRoot := config.ExpandRoot(p.LocalRoot)
+	remoteRoot := config.ExpandRoot(p.RemoteRoot)
+	if (st.LocalRoot != "" && st.LocalRoot != localRoot) || (st.RemoteRoot != "" && st.RemoteRoot != remoteRoot) {
+		return nil, fmt.Errorf(
+			"profile %q was checked out against different roots (local %s, remote %s) than now configured (local %s, remote %s) — check in from the old roots first, or remove the stale state",
+			name, st.LocalRoot, st.RemoteRoot, localRoot, remoteRoot)
+	}
+	return st, nil
+}
+
 // preflightProfile runs the checks shared by sync and checkin, mutating nothing:
 // the unlisted-local guard, the remote-mounted check (local-path remotes only —
 // a URL remote fails loudly on its first rsync call instead), the lock ownership
@@ -215,26 +243,9 @@ func (r Runner) preflightProfile(ctx context.Context, name string, p config.Prof
 		return profilePlan{}, fmt.Errorf("profile %q is checked out by %s on %s (not this profile)", name, m.CheckedOutBy, m.Host)
 	}
 
-	st, hasState, err := baseline.Load(name)
+	st, err := loadActiveState(name, p)
 	if err != nil {
 		return profilePlan{}, err
-	}
-	// A released state (checkin kept it as a resume token) is treated exactly
-	// like no state: its manifest describes the moment of release, not the
-	// present, and merging against it would misclassify later remote changes.
-	if !hasState || st.IsReleased() {
-		return profilePlan{}, fmt.Errorf("no local baseline for %q — re-checkout on this machine to establish one", name)
-	}
-	// The baseline is only meaningful against the roots it was recorded from: a
-	// profile whose roots were edited since checkout (or recreated under the same
-	// name) would merge the manifest against the wrong trees, manufacturing
-	// deletes and conflicts. Pre-binding state files (empty roots) are accepted.
-	localRoot := config.ExpandRoot(p.LocalRoot)
-	remoteRoot := config.ExpandRoot(p.RemoteRoot)
-	if (st.LocalRoot != "" && st.LocalRoot != localRoot) || (st.RemoteRoot != "" && st.RemoteRoot != remoteRoot) {
-		return profilePlan{}, fmt.Errorf(
-			"profile %q was checked out against different roots (local %s, remote %s) than now configured (local %s, remote %s) — check in from the old roots first, or remove the stale state",
-			name, st.LocalRoot, st.RemoteRoot, localRoot, remoteRoot)
 	}
 
 	// The same guard again, but against the checkout ENVELOPE (the recorded

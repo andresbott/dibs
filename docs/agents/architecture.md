@@ -71,6 +71,24 @@ remembering:
 - Claim verification: after writing the marker, checkout re-reads it — two machines
   racing past the "no marker" check is detectable (last write wins; the loser rolls its
   baseline back). The window can be shrunk, not closed, over SMB/rsync.
+- **Checkin without `--clean` keeps the baseline as a *released* token**
+  (`State.ReleasedAt` set). A released state is treated as absent by sync/checkin
+  preflight, checkout widening, and status — only `checkout --resume` consumes it.
+  `--clean` (and `--abandon --clean`) removes the state along with the copy.
+- **`checkout --resume` adopts a kept local copy without re-downloading:** it
+  lists the local tree through the engine (same scope/exclude/ignore as sync) and
+  requires every entry to match the released base exactly. Matching entries become
+  the new baseline; base entries missing locally are pruned (first sync re-pulls);
+  any local-only or differing path refuses with the paths listed — the base is the
+  arbiter of *which side moved*, so remote drift never blocks a resume (it pulls or
+  mirrors on the first sync) while local drift always does (only the user can
+  arbitrate it). The validation is purely local, so all transports behave
+  identically. Lock semantics are untouched: a foreign marker still refuses
+  (`--force` to steal), a self-held marker still widens. The vacancy guard's
+  refusal hints at `--resume` when a matching released token exists.
+- Known blind spot (inherited, not new): the fingerprint is size+mtime at 1-second
+  resolution, so an edit preserving both passes validation — the same trust every
+  sync already places in rsync's quick-check.
 
 ## Guards accumulated in lifecycle preflight
 

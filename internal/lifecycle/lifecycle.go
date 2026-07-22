@@ -30,6 +30,13 @@ type Options struct {
 	// view (the remote keeps its files; the local copy stays unless Clean).
 	// This is the sanctioned "start over" path: abandon, then check out again.
 	Abandon bool
+	// Resume (checkout only) adopts a local copy left behind by a checkin
+	// without --clean: the copy is validated file-by-file against the released
+	// baseline the checkin kept, and only an untouched (or shrunk) copy is
+	// accepted as the new baseline. It replaces the vacant-target requirement
+	// with a strictly stronger check; it does not touch the lock semantics
+	// (Force still governs stealing a foreign marker).
+	Resume bool
 	// AllowDeletes permits this run to carry out planned deletions. Off, the
 	// engine skips every planned delete — they surface in the report as
 	// Pending — and nothing is ever removed. On, deletions apply, except a
@@ -53,6 +60,7 @@ type Report struct {
 	DryRun        bool
 	Released      bool
 	Abandoned     bool // the release skipped the in-sync verification (checkin --abandon)
+	Resumed       bool // checkout --resume adopted the existing local copy as the baseline
 	PendingRemote []string // planned remote deletions skipped (allow-deletes off)
 	PendingLocal  []string // planned local deletions skipped (allow-deletes off)
 	Ignored       []string // paths matching the profile's ignore patterns — never touched
@@ -88,6 +96,7 @@ type Event struct {
 type Syncer interface {
 	Sync(ctx context.Context, local, remote threewayrsync.Endpoint, opts threewayrsync.Options) (threewayrsync.Result, error)
 	Diff(ctx context.Context, local, remote threewayrsync.Endpoint, opts threewayrsync.Options) (threewayrsync.Plan, error)
+	List(ctx context.Context, e threewayrsync.Endpoint, opts threewayrsync.Options) (threewayrsync.Manifest, error)
 }
 
 // Runner carries the injectable dependencies for the actions.

@@ -85,7 +85,13 @@ remembering:
   arbitrate it). The validation is purely local, so all transports behave
   identically. Lock semantics are untouched: a foreign marker still refuses
   (`--force` to steal), a self-held marker still widens. The vacancy guard's
-  refusal hints at `--resume` when a matching released token exists.
+  refusal hints at `--resume` when a matching released token exists. A crash window
+  exists: if the process dies after reactivating the baseline but before writing the
+  marker, the state is active with no marker and a non-empty copy — recovery is to
+  remove the local state or copy, then plain checkout. A downgrade hazard also
+  exists: an older dibs binary reading a state file carrying `released_at` ignores
+  the unknown field and treats the state as active — a binary downgrade while a
+  released token exists risks merging against the stale base.
 - Known blind spot (inherited, not new): the fingerprint is size+mtime at 1-second
   resolution, so an edit preserving both passes validation — the same trust every
   sync already places in rsync's quick-check.

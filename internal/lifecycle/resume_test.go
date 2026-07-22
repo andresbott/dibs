@@ -161,6 +161,32 @@ func TestResumeRequiresReleasedBaseline(t *testing.T) {
 	}
 }
 
+func TestResumeDetectsInterruptedResume(t *testing.T) {
+	name, p, id := releasedFixture(t)
+	remote := config.ExpandRoot(p.RemoteRoot)
+	// Simulate an interrupted resume: state exists but is not released (ReleasedAt cleared), no marker
+	st, ok, err := baseline.Load(name)
+	if err != nil || !ok {
+		t.Fatalf("load released state: ok=%v err=%v", ok, err)
+	}
+	st.ReleasedAt = time.Time{} // clear ReleasedAt as resumeCheckout would have done
+	if err := baseline.Save(st); err != nil {
+		t.Fatalf("save interrupted state: %v", err)
+	}
+	// Now the state is active but no marker exists
+	_, err = (Runner{ToolVersion: "test"}).Checkout(context.Background(), name, p, id, "", Options{Resume: true})
+	if err == nil {
+		t.Fatal("resume must refuse when state is active but not released")
+	}
+	if !strings.Contains(err.Error(), "interrupted") || !strings.Contains(err.Error(), "remove the local state") {
+		t.Errorf("error must mention interrupted resume and recovery, got: %v", err)
+	}
+	// Verify no marker was written
+	if _, ok, _ := marker.Read(remote); ok {
+		t.Error("refused resume must not write a marker")
+	}
+}
+
 func TestResumeRefusesRelpath(t *testing.T) {
 	name, p, id := releasedFixture(t)
 	if _, err := (Runner{ToolVersion: "test"}).Checkout(context.Background(), name, p, id, "docs", Options{Resume: true}); err == nil {
@@ -174,6 +200,36 @@ func TestResumeRefusesForeignMarker(t *testing.T) {
 	_ = marker.Write(remote, &marker.Marker{CheckedOutBy: "other@laptop", Host: "laptop", Profile: name})
 	if _, err := (Runner{ToolVersion: "test"}).Checkout(context.Background(), name, p, id, "", Options{Resume: true}); err == nil {
 		t.Fatal("resume must respect the cooperative lock like any checkout")
+	}
+}
+
+func TestResumeForceStealsForeignMarker(t *testing.T) {
+	name, p, id := releasedFixture(t)
+	remote := config.ExpandRoot(p.RemoteRoot)
+	// Write a foreign marker
+	foreign := &marker.Marker{CheckedOutBy: "other@laptop", Host: "laptop", Profile: name}
+	if err := marker.Write(remote, foreign); err != nil {
+		t.Fatalf("write foreign marker: %v", err)
+	}
+	// Resume without force must refuse
+	if _, err := (Runner{ToolVersion: "test"}).Checkout(context.Background(), name, p, id, "", Options{Resume: true}); err == nil {
+		t.Fatal("resume must refuse a foreign marker without --force")
+	}
+	// Resume with force must succeed
+	rep, err := (Runner{ToolVersion: "test"}).Checkout(context.Background(), name, p, id, "", Options{Resume: true, Force: true})
+	if err != nil {
+		t.Fatalf("resume --force over foreign marker: %v", err)
+	}
+	if !rep.Resumed {
+		t.Error("report must be flagged resumed")
+	}
+	// Marker must now be ours
+	m, ok, _ := marker.Read(remote)
+	if !ok {
+		t.Fatal("marker must exist after forced resume")
+	}
+	if !m.OwnedBy(id.By, id.Host, p.ID) {
+		t.Errorf("marker after forced resume must be owned by us, got %+v", m)
 	}
 }
 

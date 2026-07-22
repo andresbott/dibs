@@ -34,8 +34,11 @@ func (r Runner) resumeCheckout(ctx context.Context, rep Report, name string, p c
 	if err != nil {
 		return rep, err
 	}
-	if !hasState || !st.IsReleased() {
+	if !hasState {
 		return rep, fmt.Errorf("profile %q has no released baseline to resume — use a plain checkout", name)
+	}
+	if !st.IsReleased() {
+		return rep, fmt.Errorf("profile %q has a local baseline but no released token — if a resume was interrupted before the marker was written, remove the local state (or the local copy) and check out fresh", name)
 	}
 	remoteRoot := config.ExpandRoot(p.RemoteRoot)
 	if (st.LocalRoot != "" && st.LocalRoot != localRoot) || (st.RemoteRoot != "" && st.RemoteRoot != remoteRoot) {

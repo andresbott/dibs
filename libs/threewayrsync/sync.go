@@ -192,3 +192,35 @@ func (s *Syncer) Diff(ctx context.Context, local, remote Endpoint, opts Options)
 	plan, _, _, _, err := s.computePlan(ctx, local, remote, opts)
 	return plan, err
 }
+
+// List enumerates one endpoint into a Manifest, applying the same normalization
+// every Sync/Diff listing gets: scope filters, excludes, and ignore
+// partitioning (ignored entries are dropped, not reported). A missing local
+// directory is an empty tree — List is a read-only census, so absence is data,
+// not danger. Only Scope, Exclude, and Ignore are honored from opts.
+func (s *Syncer) List(ctx context.Context, e Endpoint, opts Options) (Manifest, error) {
+	scope, err := normalizeScope(opts.Scope)
+	if err != nil {
+		return nil, err
+	}
+	ignore, err := normalizeIgnore(opts.Ignore)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOne(e); err != nil {
+		return nil, err
+	}
+	missing, err := preflightLocal(e, "endpoint", true)
+	if err != nil {
+		return nil, err
+	}
+	if missing {
+		return Manifest{}, nil
+	}
+	m, err := s.list(ctx, e, opts.Exclude, scope)
+	if err != nil {
+		return nil, err
+	}
+	kept, _ := partitionIgnored(m, ignore)
+	return kept, nil
+}

@@ -16,7 +16,7 @@ func newCheckoutCmd(cfgPath *string) *cobra.Command {
 }
 
 func newCheckoutCmdWithRunner(cfgPath *string, r lifecycle.Runner) *cobra.Command {
-	var force, dryRun bool
+	var force, dryRun, resume bool
 	cmd := &cobra.Command{
 		Use:   "checkout <profile> [relpath]",
 		Short: "lock a profile's remote root (files are copied by sync)",
@@ -51,7 +51,7 @@ func newCheckoutCmdWithRunner(cfgPath *string, r lifecycle.Runner) *cobra.Comman
 			if len(args) == 2 {
 				rel = args[1]
 			}
-			opts := lifecycle.Options{Force: force, DryRun: dryRun}
+			opts := lifecycle.Options{Force: force, DryRun: dryRun, Resume: resume}
 			rep, err := r.Checkout(cmd.Context(), name, p, id, rel, opts)
 			if err != nil {
 				return err
@@ -62,13 +62,19 @@ func newCheckoutCmdWithRunner(cfgPath *string, r lifecycle.Runner) *cobra.Comman
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "override an existing lock held by someone else")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "run the checks without writing a marker")
+	cmd.Flags().BoolVar(&resume, "resume", false, "adopt the local copy left by a checkin without --clean (validated against the released baseline; refuses if the copy was modified while released)")
 	return cmd
 }
 
 func printCheckoutReport(w io.Writer, name string, rep lifecycle.Report) {
-	if rep.DryRun {
+	switch {
+	case rep.DryRun && rep.Resumed:
+		_, _ = fmt.Fprintf(w, "%s: dry-run — local copy verified; would resume the checkout\n", name)
+	case rep.DryRun:
 		_, _ = fmt.Fprintf(w, "%s: dry-run — would write a marker (lock only)\n", name)
-		return
+	case rep.Resumed:
+		_, _ = fmt.Fprintf(w, "%s: resumed (local copy adopted; run 'dibs sync %s' to reconcile any remote changes)\n", name, name)
+	default:
+		_, _ = fmt.Fprintf(w, "%s: checked out (locked; run 'dibs sync %s' to pull files)\n", name, name)
 	}
-	_, _ = fmt.Fprintf(w, "%s: checked out (locked; run 'dibs sync %s' to pull files)\n", name, name)
 }

@@ -131,3 +131,38 @@ func TestCheckoutDryRunPrintsNoChangeLines(t *testing.T) {
 		t.Errorf("dry run must not stream applied changes, got:\n%s", buf.String())
 	}
 }
+
+// The full CLI resume round trip: checkout+sync+checkin keeps the copy, plain
+// re-checkout refuses pointing at --resume, and --resume re-locks over it.
+func TestCheckoutCommandResumeFlag(t *testing.T) {
+	cfgPath, remote := heldCmdFixture(t)
+	ci := newCheckinCmdWithRunner(&cfgPath, lifecycle.Runner{ToolVersion: "test"})
+	ci.SetOut(&bytes.Buffer{})
+	ci.SetArgs([]string{"work"})
+	if err := ci.Execute(); err != nil {
+		t.Fatalf("fixture checkin: %v", err)
+	}
+
+	plain := newCheckoutCmdWithRunner(&cfgPath, lifecycle.Runner{ToolVersion: "test"})
+	plain.SetOut(&bytes.Buffer{})
+	plain.SetErr(&bytes.Buffer{})
+	plain.SetArgs([]string{"work"})
+	err := plain.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--resume") {
+		t.Fatalf("plain re-checkout should refuse and hint at --resume, got %v", err)
+	}
+
+	res := newCheckoutCmdWithRunner(&cfgPath, lifecycle.Runner{ToolVersion: "test"})
+	var buf bytes.Buffer
+	res.SetOut(&buf)
+	res.SetArgs([]string{"work", "--resume"})
+	if err := res.Execute(); err != nil {
+		t.Fatalf("checkout --resume: %v", err)
+	}
+	if !strings.Contains(buf.String(), "resumed") {
+		t.Errorf("want a 'resumed' summary, got:\n%s", buf.String())
+	}
+	if _, ok, _ := marker.Read(remote); !ok {
+		t.Error("resume must write the marker")
+	}
+}

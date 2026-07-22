@@ -210,7 +210,10 @@ func (r Runner) preflightProfile(ctx context.Context, name string, p config.Prof
 	if err != nil {
 		return profilePlan{}, err
 	}
-	if !hasState {
+	// A released state (checkin kept it as a resume token) is treated exactly
+	// like no state: its manifest describes the moment of release, not the
+	// present, and merging against it would misclassify later remote changes.
+	if !hasState || st.IsReleased() {
 		return profilePlan{}, fmt.Errorf("no local baseline for %q — re-checkout on this machine to establish one", name)
 	}
 	// The baseline is only meaningful against the roots it was recorded from: a

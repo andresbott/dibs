@@ -167,7 +167,7 @@ func (r Runner) widenCheckout(ctx context.Context, rep Report, name, localRoot s
 	if err != nil {
 		return rep, err
 	}
-	if !hasState {
+	if !hasState || st.IsReleased() {
 		return rep, fmt.Errorf("profile %q is checked out on this machine but has no local baseline — remove the marker by hand and re-checkout", name)
 	}
 	if rel == "." || relpathCovered(rel, st.Relpaths) {

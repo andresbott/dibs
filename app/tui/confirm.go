@@ -99,7 +99,7 @@ func confirmCheckboxes(kind confirmKind, p confirmParams) string {
 			lines = append(lines, confirmCheckbox("steal the lock (take over their checkout)", p.steal, p.focus == confirmFocusSteal))
 		}
 		if p.resumable {
-			lines = append(lines, helpTextStyle.Render("existing local copy detected — it will be resumed (adopted, not re-downloaded)"))
+			lines = append(lines, okStyle.Bold(true).Render("↻ existing local copy detected — it will be resumed (adopted, not re-downloaded)"))
 		}
 		return strings.Join(lines, "\n")
 	}

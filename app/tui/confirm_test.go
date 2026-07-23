@@ -660,44 +660,43 @@ func TestWipeDialogClosesWithoutRunning(t *testing.T) {
 	}
 }
 
-// TestCheckoutModalResumeCheckbox: with a resume token available the checkout
-// dialog offers the resume checkbox; without one it must not appear; ticked it
-// renders checked. Foreign + resumable shows both checkboxes.
-func TestCheckoutModalResumeCheckbox(t *testing.T) {
+// TestCheckoutModalResumeInfo: with a resume token available the checkout
+// dialog shows an informational "will be resumed" line (no checkbox — resume
+// is automatic); without one no resume wording appears. Foreign + resumable
+// shows the steal checkbox and the info line together.
+func TestCheckoutModalResumeInfo(t *testing.T) {
 	plain := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusCancel}, 80)
-	if strings.Contains(plain, "resume") {
-		t.Errorf("without a token the checkout modal must not show the resume checkbox:\n%s", plain)
+	if strings.Contains(plain, "resumed") {
+		t.Errorf("without a token the checkout modal must not mention resuming:\n%s", plain)
 	}
-	offered := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusResume, resumable: true}, 80)
-	if !strings.Contains(offered, "resume (adopt existing local copy)") {
-		t.Fatalf("resumable checkout modal missing the resume checkbox:\n%s", offered)
+	offered := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusCancel, resumable: true}, 80)
+	if !strings.Contains(offered, "existing local copy detected") || !strings.Contains(offered, "resumed") {
+		t.Fatalf("resumable checkout modal missing the resume info line:\n%s", offered)
 	}
-	checked := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusResume, resumable: true, resume: true}, 80)
-	if !strings.Contains(checked, "[x]") {
-		t.Errorf("resume=true should render a checked box:\n%s", checked)
+	if strings.Contains(offered, "[ ] existing") || strings.Contains(offered, "[x] existing") {
+		t.Errorf("the resume info line must not render as a checkbox:\n%s", offered)
 	}
 	both := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusSteal, foreign: true, resumable: true}, 80)
-	for _, want := range []string{"steal the lock", "resume (adopt existing local copy)"} {
+	for _, want := range []string{"steal the lock", "existing local copy detected"} {
 		if !strings.Contains(both, want) {
 			t.Fatalf("foreign+resumable modal missing %q:\n%s", want, both)
 		}
 	}
 }
 
-// TestCheckoutOpensWithResumeOffered: opening the checkout dialog on a profile
-// with a released token flags it resumable and resets the checkbox, so a stale
-// tick from a previous open can't silently resume.
-func TestCheckoutOpensWithResumeOffered(t *testing.T) {
+// TestCheckoutOpensWithResumeDetected: opening the checkout dialog on a profile
+// with a released token snapshots it (confirmResumable), which is what makes
+// the confirmed checkout resume automatically.
+func TestCheckoutOpensWithResumeDetected(t *testing.T) {
 	t.Setenv("DIBS_STATE", t.TempDir())
 	local := t.TempDir()
 	if err := baseline.Save(&baseline.State{Profile: "work", Relpaths: []string{"."}, LocalRoot: local, ReleasedAt: time.Unix(5000, 0).UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	m := model{
-		sub:            subActions,
-		cfg:            &config.Config{Profiles: map[string]config.Profile{"work": {LocalRoot: local}}},
-		checks:         map[string]*sanity.Result{"work": {CheckedOut: false}},
-		checkoutResume: true, // stale from a previous open
+		sub:    subActions,
+		cfg:    &config.Config{Profiles: map[string]config.Profile{"work": {LocalRoot: local}}},
+		checks: map[string]*sanity.Result{"work": {CheckedOut: false}},
 	}
 	m.profile = newProfileView("work")
 	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Checkout")
@@ -707,15 +706,12 @@ func TestCheckoutOpensWithResumeOffered(t *testing.T) {
 		t.Fatalf("Checkout Enter should open the checkout dialog, got mode %d kind %d", got.mode, got.confirmKind)
 	}
 	if !got.confirmResumable {
-		t.Error("a released token should open the dialog with resume offered")
-	}
-	if got.checkoutResume {
-		t.Error("opening the checkout dialog should reset the resume checkbox to unchecked")
+		t.Error("a released token should open the dialog with resume detected")
 	}
 }
 
 // TestCheckoutOpensWithoutResumeWhenNoToken: no released token — the dialog
-// must not offer resume.
+// must not flag resume, and the confirmed checkout runs plain.
 func TestCheckoutOpensWithoutResumeWhenNoToken(t *testing.T) {
 	t.Setenv("DIBS_STATE", t.TempDir())
 	m := model{
@@ -727,15 +723,15 @@ func TestCheckoutOpensWithoutResumeWhenNoToken(t *testing.T) {
 	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Checkout")
 	m2, _ := m.updateProfile(keyMsg("enter"))
 	if m2.(model).confirmResumable {
-		t.Error("without a token the dialog must not offer resume")
+		t.Error("without a token the dialog must not flag resume")
 	}
 }
 
-// TestCheckoutResumeTogglesAndPassesResume: space toggles the resume checkbox,
-// and confirming with it ticked carries Resume into the checkout options —
+// TestCheckoutConfirmedAutoResumes: confirming a checkout that opened with a
+// resume token detected carries Resume into the options automatically —
 // asserted through the runner: the kept local copy is adopted (marker written,
 // no error) where a plain checkout would refuse the non-empty target.
-func TestCheckoutResumeTogglesAndPassesResume(t *testing.T) {
+func TestCheckoutConfirmedAutoResumes(t *testing.T) {
 	requireRsync(t)
 	t.Setenv("DIBS_STATE", t.TempDir())
 	root := t.TempDir()
@@ -763,52 +759,23 @@ func TestCheckoutResumeTogglesAndPassesResume(t *testing.T) {
 		mode:             modeConfirm,
 		confirmKind:      confirmCheckout,
 		confirmName:      "work",
-		confirmResumable: true,
-		confirmFocus:     confirmFocusResume,
+		confirmResumable: true, // snapshotted at dialog open
+		confirmFocus:     confirmFocusDelete,
 		cfg:              &config.Config{Profiles: map[string]config.Profile{"work": p}},
 		id:               id,
 		runner:           r,
 	}
 	m.profile = newProfileView("work")
 
-	m = update(t, m, tea.KeyMsg{Type: tea.KeySpace})
-	if !m.checkoutResume {
-		t.Fatal("space on the focused resume checkbox should tick it")
-	}
 	m2, cmd := m.activateConfirm()
 	if !m2.(model).profile.acting {
 		t.Fatal("confirming checkout should mark the profile as acting")
 	}
 	_, res := drainStream(t, cmd())
 	if res.err != nil {
-		t.Fatalf("resume checkout should adopt the kept copy, got %v", res.err)
+		t.Fatalf("a detected token should make the checkout resume automatically, got %v", res.err)
 	}
 	if got, ok, _ := marker.Read(remote); !ok || !got.OwnedBy(id.By, id.Host, "") {
 		t.Errorf("the marker should now be ours, got %+v", got)
-	}
-}
-
-// TestCheckoutDialogResumeFocusRing: with resume offered, Tab reaches the
-// resume checkbox before the buttons; with foreign too, steal comes first.
-func TestCheckoutDialogResumeFocusRing(t *testing.T) {
-	ring := confirmFocusRing(confirmCheckout, false, true)
-	want := []confirmFocus{confirmFocusResume, confirmFocusDelete, confirmFocusCancel}
-	if len(ring) != len(want) {
-		t.Fatalf("ring = %v, want %v", ring, want)
-	}
-	for i := range want {
-		if ring[i] != want[i] {
-			t.Fatalf("ring = %v, want %v", ring, want)
-		}
-	}
-	both := confirmFocusRing(confirmCheckout, true, true)
-	wantBoth := []confirmFocus{confirmFocusSteal, confirmFocusResume, confirmFocusDelete, confirmFocusCancel}
-	if len(both) != len(wantBoth) {
-		t.Fatalf("foreign+resumable ring = %v, want %v", both, wantBoth)
-	}
-	for i := range wantBoth {
-		if both[i] != wantBoth[i] {
-			t.Fatalf("foreign+resumable ring = %v, want %v", both, wantBoth)
-		}
 	}
 }

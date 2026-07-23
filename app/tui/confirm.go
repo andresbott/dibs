@@ -29,7 +29,6 @@ const (
 	confirmFocusSteal
 	confirmFocusAllowDeletes
 	confirmFocusLocalWins
-	confirmFocusResume
 )
 
 // confirmFocusRing is the Tab order for a dialog kind. Check-in, sync, and a
@@ -37,18 +36,14 @@ const (
 // a checkout without a foreign lock) has buttons only; the informational wipe
 // dialog has a single OK, so focus never moves. foreign only matters for
 // confirmCheckout: it adds the steal checkbox.
-func confirmFocusRing(kind confirmKind, foreign, resumable bool) []confirmFocus {
+func confirmFocusRing(kind confirmKind, foreign bool) []confirmFocus {
 	switch {
 	case kind == confirmCheckin:
 		return []confirmFocus{confirmFocusAbandon, confirmFocusClean, confirmFocusDelete, confirmFocusCancel}
 	case kind == confirmSync:
 		return []confirmFocus{confirmFocusAllowDeletes, confirmFocusLocalWins, confirmFocusDelete, confirmFocusCancel}
-	case kind == confirmCheckout && foreign && resumable:
-		return []confirmFocus{confirmFocusSteal, confirmFocusResume, confirmFocusDelete, confirmFocusCancel}
 	case kind == confirmCheckout && foreign:
 		return []confirmFocus{confirmFocusSteal, confirmFocusDelete, confirmFocusCancel}
-	case kind == confirmCheckout && resumable:
-		return []confirmFocus{confirmFocusResume, confirmFocusDelete, confirmFocusCancel}
 	case kind == confirmWipe:
 		return []confirmFocus{confirmFocusCancel}
 	default:
@@ -57,8 +52,8 @@ func confirmFocusRing(kind confirmKind, foreign, resumable bool) []confirmFocus 
 }
 
 // confirmFocusStep moves focus dir steps (+1/-1) around the kind's ring, wrapping.
-func confirmFocusStep(kind confirmKind, foreign, resumable bool, cur confirmFocus, dir int) confirmFocus {
-	ring := confirmFocusRing(kind, foreign, resumable)
+func confirmFocusStep(kind confirmKind, foreign bool, cur confirmFocus, dir int) confirmFocus {
+	ring := confirmFocusRing(kind, foreign)
 	idx := 0
 	for i, f := range ring {
 		if f == cur {
@@ -87,8 +82,9 @@ func confirmCheckbox(label string, checked, focused bool) string {
 
 // confirmCheckboxes renders the per-kind option checkboxes for the confirm
 // dialog: check-in has abandon+clean, sync has allow-deletes+local-wins, and
-// checkout may have steal+resume depending on foreign/resumable context.
-// Returns an empty string for delete and wipe dialogs (they have no checkboxes).
+// checkout has steal on a foreign lock. A resumable checkout adds an
+// informational line, not a checkbox — resume is automatic when a released
+// token exists. Returns an empty string when the dialog has neither.
 func confirmCheckboxes(kind confirmKind, p confirmParams) string {
 	switch {
 	case kind == confirmCheckin:
@@ -103,7 +99,7 @@ func confirmCheckboxes(kind confirmKind, p confirmParams) string {
 			lines = append(lines, confirmCheckbox("steal the lock (take over their checkout)", p.steal, p.focus == confirmFocusSteal))
 		}
 		if p.resumable {
-			lines = append(lines, confirmCheckbox("resume (adopt existing local copy)", p.resume, p.focus == confirmFocusResume))
+			lines = append(lines, helpTextStyle.Render("existing local copy detected — it will be resumed (adopted, not re-downloaded)"))
 		}
 		return strings.Join(lines, "\n")
 	}
@@ -156,8 +152,7 @@ type confirmParams struct {
 	steal          bool           // checkout "steal the lock" checkbox
 	foreign        bool           // checkout opened on a foreign lock: show holder + steal
 	holder         *marker.Marker // the foreign lock's marker; nil if unreadable
-	resume         bool           // checkout "resume (adopt existing local copy)" checkbox
-	resumable      bool           // checkout opened with a released resume token available
+	resumable      bool           // checkout opened with a released resume token: resume is automatic, an info line says so
 	allowDeletes   bool           // sync checkboxes
 	localWins      bool
 	wipe           *threewayrsync.WouldWipeError // confirmWipe only
@@ -178,7 +173,6 @@ func (m model) confirmParams() confirmParams {
 		steal:        m.checkoutSteal,
 		foreign:      m.confirmForeign,
 		holder:       holder,
-		resume:       m.checkoutResume,
 		resumable:    m.confirmResumable,
 		allowDeletes: m.syncAllowDeletes,
 		localWins:    m.syncLocalWins,
@@ -346,10 +340,10 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wipe = nil
 		return m, nil
 	case "tab":
-		m.confirmFocus = confirmFocusStep(m.confirmKind, m.confirmForeign, m.confirmResumable, m.confirmFocus, 1)
+		m.confirmFocus = confirmFocusStep(m.confirmKind, m.confirmForeign, m.confirmFocus, 1)
 		return m, nil
 	case "shift+tab":
-		m.confirmFocus = confirmFocusStep(m.confirmKind, m.confirmForeign, m.confirmResumable, m.confirmFocus, -1)
+		m.confirmFocus = confirmFocusStep(m.confirmKind, m.confirmForeign, m.confirmFocus, -1)
 		return m, nil
 	case "left", "right":
 		// Toggle between the two buttons; ignored while on a checkbox.
@@ -363,14 +357,14 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "up", "down":
 		// Step through the dialog's rows, in the dialogs that have checkbox rows
 		// above the buttons: down walks the ring forward, up walks it back.
-		if len(confirmFocusRing(m.confirmKind, m.confirmForeign, m.confirmResumable)) <= 2 {
+		if len(confirmFocusRing(m.confirmKind, m.confirmForeign)) <= 2 {
 			return m, nil
 		}
 		dir := 1
 		if key.String() == "up" {
 			dir = -1
 		}
-		m.confirmFocus = confirmFocusStep(m.confirmKind, m.confirmForeign, m.confirmResumable, m.confirmFocus, dir)
+		m.confirmFocus = confirmFocusStep(m.confirmKind, m.confirmForeign, m.confirmFocus, dir)
 		return m, nil
 	case "enter", " ":
 		if toggled, ok := m.toggleConfirmCheckbox(); ok {
@@ -397,8 +391,6 @@ func (m model) toggleConfirmCheckbox() (model, bool) {
 		m.checkinClean = !m.checkinClean
 	case confirmFocusSteal:
 		m.checkoutSteal = !m.checkoutSteal
-	case confirmFocusResume:
-		m.checkoutResume = !m.checkoutResume
 	case confirmFocusAllowDeletes:
 		m.syncAllowDeletes = !m.syncAllowDeletes
 	case confirmFocusLocalWins:
@@ -517,11 +509,14 @@ func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 // reset so the Activity box shows a fresh in-progress state. Mirrors
 // checkinConfirmed. Force is the dialog's "steal the lock" checkbox — only
 // offered when the dialog opened on a foreign lock; left unchecked, a foreign
-// lock still refuses in the runner and the refusal shows in Activity.
+// lock still refuses in the runner and the refusal shows in Activity. Resume is
+// automatic: when the dialog opened with a released token detected
+// (confirmResumable), the kept local copy is adopted — a tampered copy still
+// refuses in the runner, listing the offending paths in Activity.
 func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
 	ctx := (&m).beginAction()
-	opts := lifecycle.Options{Force: m.checkoutSteal, Resume: m.checkoutResume}
+	opts := lifecycle.Options{Force: m.checkoutSteal, Resume: m.confirmResumable}
 	return m, checkoutCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)
 }
 

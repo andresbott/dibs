@@ -269,6 +269,28 @@ func TestVacancyRefusalHintsResume(t *testing.T) {
 	}
 }
 
+func TestHasResumeToken(t *testing.T) {
+	name, p, id := releasedFixture(t)
+	if !HasResumeToken(name, p) {
+		t.Error("a released token against the same root must report true")
+	}
+	moved := p
+	moved.LocalRoot = t.TempDir()
+	if HasResumeToken(name, moved) {
+		t.Error("a re-rooted profile must not offer resume")
+	}
+	// Resuming reactivates the state: the token is consumed.
+	if _, err := (Runner{ToolVersion: "test"}).Checkout(context.Background(), name, p, id, "", Options{Resume: true}); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if HasResumeToken(name, p) {
+		t.Error("an active checkout must not offer resume")
+	}
+	if HasResumeToken("nonexistent", p) {
+		t.Error("a profile with no state must not offer resume")
+	}
+}
+
 func TestAdoptBaselineTable(t *testing.T) {
 	mt := time.Unix(1000, 0).UTC()
 	f := func(size int64) threewayrsync.FileState { return threewayrsync.FileState{Size: size, ModTime: mt} }

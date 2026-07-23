@@ -124,16 +124,31 @@ func adoptBaseline(base, local threewayrsync.Manifest) (adopted threewayrsync.Ma
 	return adopted, violations
 }
 
-// resumeHint decorates a plain checkout's vacancy refusal with the --resume
-// pointer when a released token exists for this profile against the same local
-// root — exactly the situation --resume exists for. Any load error or mismatch
-// leaves the original refusal untouched.
-func resumeHint(vacancyErr error, name, localRoot string) error {
+// HasResumeToken reports whether profile name holds a released baseline usable
+// by checkout --resume against its configured local root. Frontends (the TUI's
+// checkout dialog) use it to decide whether to offer the resume option; it
+// never validates the copy — that is resumeCheckout's job.
+func HasResumeToken(name string, p config.Profile) bool {
+	return hasReleasedToken(name, config.ExpandRoot(p.LocalRoot))
+}
+
+// hasReleasedToken is the shared probe behind HasResumeToken and resumeHint: a
+// released state exists and is bound to this local root (or predates binding).
+// Any load error reads as "no token" — the probe only gates a hint/checkbox,
+// never the resume itself.
+func hasReleasedToken(name, localRoot string) bool {
 	st, ok, err := baseline.Load(name)
 	if err != nil || !ok || !st.IsReleased() {
-		return vacancyErr
+		return false
 	}
-	if st.LocalRoot != "" && st.LocalRoot != localRoot {
+	return st.LocalRoot == "" || st.LocalRoot == localRoot
+}
+
+// resumeHint decorates a plain checkout's vacancy refusal with the --resume
+// pointer when a released token exists for this profile against the same local
+// root — exactly the situation --resume exists for.
+func resumeHint(vacancyErr error, name, localRoot string) error {
+	if !hasReleasedToken(name, localRoot) {
 		return vacancyErr
 	}
 	return fmt.Errorf("%w — or run 'dibs checkout %s --resume' to adopt the copy left by the last checkin", vacancyErr, name)

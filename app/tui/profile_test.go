@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/andresbott/dibs/internal/ident"
+	"github.com/andresbott/dibs/internal/lifecycle"
 	"github.com/andresbott/dibs/internal/marker"
 	"github.com/andresbott/dibs/internal/sanity"
 	tea "github.com/charmbracelet/bubbletea"
@@ -80,5 +81,16 @@ func TestCheckedOutActionsOrder(t *testing.T) {
 	}
 	if got[newProfileView("alpha").cursor] != "Status" {
 		t.Fatalf("default cursor should select Status, got %q", got[0])
+	}
+}
+
+// A resumed checkout copies nothing, so the generic "pull 0, push 0" summary
+// would misread; the Activity summary must say what happened instead.
+func TestActionBodyResumedSummary(t *testing.T) {
+	p := newProfileView("work")
+	p.actionReport = &lifecycle.Report{Action: "checkout", Resumed: true}
+	body := actionBody(p)
+	if !strings.Contains(body, "resumed") || !strings.Contains(body, "local copy adopted") {
+		t.Errorf("resumed checkout summary should say the copy was adopted, got:\n%s", body)
 	}
 }

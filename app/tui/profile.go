@@ -315,6 +315,10 @@ func actionBody(p profileModel) string {
 		// as a verified in-sync release.
 		summary = rep.Action + ": abandoned (lock released, nothing synced)"
 	}
+	if rep.Resumed {
+		// A resume copies nothing — the kept local copy was verified and adopted.
+		summary = rep.Action + ": resumed (local copy adopted; run Sync to reconcile remote changes)"
+	}
 	if len(p.applied) == 0 {
 		return summary
 	}

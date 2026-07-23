@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andresbott/dibs/internal/baseline"
 	"github.com/andresbott/dibs/internal/config"
 	"github.com/andresbott/dibs/internal/ident"
 	"github.com/andresbott/dibs/internal/lifecycle"
@@ -654,6 +656,159 @@ func TestWipeDialogClosesWithoutRunning(t *testing.T) {
 		}
 		if m.profile.acting {
 			t.Errorf("%v must not re-run anything", key)
+		}
+	}
+}
+
+// TestCheckoutModalResumeCheckbox: with a resume token available the checkout
+// dialog offers the resume checkbox; without one it must not appear; ticked it
+// renders checked. Foreign + resumable shows both checkboxes.
+func TestCheckoutModalResumeCheckbox(t *testing.T) {
+	plain := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusCancel}, 80)
+	if strings.Contains(plain, "resume") {
+		t.Errorf("without a token the checkout modal must not show the resume checkbox:\n%s", plain)
+	}
+	offered := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusResume, resumable: true}, 80)
+	if !strings.Contains(offered, "resume (adopt existing local copy)") {
+		t.Fatalf("resumable checkout modal missing the resume checkbox:\n%s", offered)
+	}
+	checked := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusResume, resumable: true, resume: true}, 80)
+	if !strings.Contains(checked, "[x]") {
+		t.Errorf("resume=true should render a checked box:\n%s", checked)
+	}
+	both := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusSteal, foreign: true, resumable: true}, 80)
+	for _, want := range []string{"steal the lock", "resume (adopt existing local copy)"} {
+		if !strings.Contains(both, want) {
+			t.Fatalf("foreign+resumable modal missing %q:\n%s", want, both)
+		}
+	}
+}
+
+// TestCheckoutOpensWithResumeOffered: opening the checkout dialog on a profile
+// with a released token flags it resumable and resets the checkbox, so a stale
+// tick from a previous open can't silently resume.
+func TestCheckoutOpensWithResumeOffered(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	local := t.TempDir()
+	if err := baseline.Save(&baseline.State{Profile: "work", Relpaths: []string{"."}, LocalRoot: local, ReleasedAt: time.Unix(5000, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	m := model{
+		sub:            subActions,
+		cfg:            &config.Config{Profiles: map[string]config.Profile{"work": {LocalRoot: local}}},
+		checks:         map[string]*sanity.Result{"work": {CheckedOut: false}},
+		checkoutResume: true, // stale from a previous open
+	}
+	m.profile = newProfileView("work")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Checkout")
+	m2, _ := m.updateProfile(keyMsg("enter"))
+	got := m2.(model)
+	if got.mode != modeConfirm || got.confirmKind != confirmCheckout {
+		t.Fatalf("Checkout Enter should open the checkout dialog, got mode %d kind %d", got.mode, got.confirmKind)
+	}
+	if !got.confirmResumable {
+		t.Error("a released token should open the dialog with resume offered")
+	}
+	if got.checkoutResume {
+		t.Error("opening the checkout dialog should reset the resume checkbox to unchecked")
+	}
+}
+
+// TestCheckoutOpensWithoutResumeWhenNoToken: no released token — the dialog
+// must not offer resume.
+func TestCheckoutOpensWithoutResumeWhenNoToken(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	m := model{
+		sub:    subActions,
+		cfg:    &config.Config{Profiles: map[string]config.Profile{"work": {LocalRoot: t.TempDir()}}},
+		checks: map[string]*sanity.Result{"work": {CheckedOut: false}},
+	}
+	m.profile = newProfileView("work")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Checkout")
+	m2, _ := m.updateProfile(keyMsg("enter"))
+	if m2.(model).confirmResumable {
+		t.Error("without a token the dialog must not offer resume")
+	}
+}
+
+// TestCheckoutResumeTogglesAndPassesResume: space toggles the resume checkbox,
+// and confirming with it ticked carries Resume into the checkout options —
+// asserted through the runner: the kept local copy is adopted (marker written,
+// no error) where a plain checkout would refuse the non-empty target.
+func TestCheckoutResumeTogglesAndPassesResume(t *testing.T) {
+	requireRsync(t)
+	t.Setenv("DIBS_STATE", t.TempDir())
+	root := t.TempDir()
+	local := filepath.Join(root, "local")
+	remote := filepath.Join(root, "remote")
+	_ = os.MkdirAll(remote, 0o755)
+	if err := os.WriteFile(filepath.Join(remote, "keep.txt"), []byte("base"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := ident.Ident{By: "me@host", Host: "host"}
+	p := config.Profile{LocalRoot: local, RemoteRoot: remote}
+	r := lifecycle.Runner{ToolVersion: "test"}
+	ctx := context.Background()
+	if _, err := r.Checkout(ctx, "work", p, id, "", lifecycle.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Sync(ctx, "work", p, id, "", lifecycle.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Checkin(ctx, "work", p, id, lifecycle.Options{}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := model{
+		mode:             modeConfirm,
+		confirmKind:      confirmCheckout,
+		confirmName:      "work",
+		confirmResumable: true,
+		confirmFocus:     confirmFocusResume,
+		cfg:              &config.Config{Profiles: map[string]config.Profile{"work": p}},
+		id:               id,
+		runner:           r,
+	}
+	m.profile = newProfileView("work")
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeySpace})
+	if !m.checkoutResume {
+		t.Fatal("space on the focused resume checkbox should tick it")
+	}
+	m2, cmd := m.activateConfirm()
+	if !m2.(model).profile.acting {
+		t.Fatal("confirming checkout should mark the profile as acting")
+	}
+	_, res := drainStream(t, cmd())
+	if res.err != nil {
+		t.Fatalf("resume checkout should adopt the kept copy, got %v", res.err)
+	}
+	if got, ok, _ := marker.Read(remote); !ok || !got.OwnedBy(id.By, id.Host, "") {
+		t.Errorf("the marker should now be ours, got %+v", got)
+	}
+}
+
+// TestCheckoutDialogResumeFocusRing: with resume offered, Tab reaches the
+// resume checkbox before the buttons; with foreign too, steal comes first.
+func TestCheckoutDialogResumeFocusRing(t *testing.T) {
+	ring := confirmFocusRing(confirmCheckout, false, true)
+	want := []confirmFocus{confirmFocusResume, confirmFocusDelete, confirmFocusCancel}
+	if len(ring) != len(want) {
+		t.Fatalf("ring = %v, want %v", ring, want)
+	}
+	for i := range want {
+		if ring[i] != want[i] {
+			t.Fatalf("ring = %v, want %v", ring, want)
+		}
+	}
+	both := confirmFocusRing(confirmCheckout, true, true)
+	wantBoth := []confirmFocus{confirmFocusSteal, confirmFocusResume, confirmFocusDelete, confirmFocusCancel}
+	if len(both) != len(wantBoth) {
+		t.Fatalf("foreign+resumable ring = %v, want %v", both, wantBoth)
+	}
+	for i := range wantBoth {
+		if both[i] != wantBoth[i] {
+			t.Fatalf("foreign+resumable ring = %v, want %v", both, wantBoth)
 		}
 	}
 }

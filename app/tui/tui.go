@@ -79,6 +79,12 @@ type model struct {
 	// shows the holder and the steal checkbox. Snapshotted at open time so
 	// render and key handling agree even if a sanity refresh lands mid-dialog.
 	confirmForeign bool
+	// checkoutResume is the checkout dialog's "resume (adopt existing local
+	// copy)" checkbox; confirmResumable records, at dialog open, that a released
+	// resume token exists for the profile (lifecycle.HasResumeToken), which is
+	// what makes the checkbox appear. Both reset on every open.
+	checkoutResume   bool
+	confirmResumable bool
 	// syncAllowDeletes and syncLocalWins are the sync dialog's checkboxes: the
 	// TUI equivalents of sync --allow-deletes (off: planned deletes are skipped
 	// and reported pending; a one-side wipe is refused either way) and --force
@@ -905,6 +911,8 @@ func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 		m.confirmForeign = r != nil && r.CheckedOut &&
 			(r.Marker == nil || !r.Marker.OwnedBy(m.id.By, m.id.Host, m.profileID(m.profile.name)))
 		m.checkoutSteal = false
+		m.confirmResumable = lifecycle.HasResumeToken(m.profile.name, m.cfg.Profiles[m.profile.name])
+		m.checkoutResume = false
 		m.mode = modeConfirm
 	case "Sync":
 		m.confirmName = m.profile.name

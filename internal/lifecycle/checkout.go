@@ -61,6 +61,14 @@ func (r Runner) Checkout(ctx context.Context, name string, p config.Profile, id 
 			name, existing.CheckedOutBy, existing.Host, existing.CheckedOutAt.Format("2006-01-02 15:04"))
 	}
 
+	// --resume replaces the vacancy requirement with a strictly stronger check:
+	// the existing copy must match the released baseline file-for-file. It runs
+	// after the marker checks above, so lock semantics are identical to a plain
+	// checkout (a foreign marker refused, or stolen only via Force).
+	if opts.Resume {
+		return r.resumeCheckout(ctx, rep, name, p, id, localRoot, acc, relpath, opts)
+	}
+
 	relpaths := checkoutRelpaths(p, relpath)
 
 	// Refuse to lock over an existing local copy. This guard is absolute: unlike
@@ -69,7 +77,7 @@ func (r Runner) Checkout(ctx context.Context, name string, p config.Profile, id 
 	// "added on both sides" conflicts against the empty baseline recorded below.
 	for _, rel := range relpaths {
 		if err := ensureLocalTargetVacant(filepath.Join(localRoot, rel), name); err != nil {
-			return rep, err
+			return rep, resumeHint(err, name, localRoot)
 		}
 	}
 
@@ -167,7 +175,7 @@ func (r Runner) widenCheckout(ctx context.Context, rep Report, name, localRoot s
 	if err != nil {
 		return rep, err
 	}
-	if !hasState {
+	if !hasState || st.IsReleased() {
 		return rep, fmt.Errorf("profile %q is checked out on this machine but has no local baseline — remove the marker by hand and re-checkout", name)
 	}
 	if rel == "." || relpathCovered(rel, st.Relpaths) {

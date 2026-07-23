@@ -253,6 +253,10 @@ func (*blockingSyncer) Diff(context.Context, threewayrsync.Endpoint, threewayrsy
 	return threewayrsync.Plan{}, nil
 }
 
+func (*blockingSyncer) List(context.Context, threewayrsync.Endpoint, threewayrsync.Options) (threewayrsync.Manifest, error) {
+	return threewayrsync.Manifest{}, nil
+}
+
 // TestSyncCancelStopsRunningRsync proves the cancelable context reaches the rsync
 // call: syncCmd starts the transfer, canceling the context unblocks it, and the
 // run returns an error rather than hanging.

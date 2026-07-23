@@ -31,6 +31,13 @@ type State struct {
 	RemoteRoot string                 `json:"remote_root,omitempty"`
 	Files      threewayrsync.Manifest `json:"files"`
 	LastSyncAt time.Time              `json:"last_sync_at"`
+	// ReleasedAt, when set, marks this state as a RELEASED baseline: checkin
+	// kept it as a resume token for `checkout --resume` instead of deleting it.
+	// A released baseline is NOT an active checkout — sync/checkin preflight,
+	// checkout widening, and status must all treat it as absent. Only
+	// checkout --resume may consume it, and only after validating the local
+	// copy against Files.
+	ReleasedAt time.Time `json:"released_at,omitzero"`
 }
 
 // Scope translates the recorded relpaths into a threewayrsync scope: a
@@ -48,6 +55,10 @@ func (s *State) Scope() []string {
 	}
 	return scope
 }
+
+// IsReleased reports whether this state is a released resume token rather than
+// an active checkout.
+func (s *State) IsReleased() bool { return !s.ReleasedAt.IsZero() }
 
 // Dir returns the state directory: $DIBS_STATE, else
 // $XDG_STATE_HOME/dibs, else ~/.local/state/dibs.

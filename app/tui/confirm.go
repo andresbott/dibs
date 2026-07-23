@@ -80,6 +80,32 @@ func confirmCheckbox(label string, checked, focused bool) string {
 	return st.Render(box + " " + label)
 }
 
+// confirmCheckboxes renders the per-kind option checkboxes for the confirm
+// dialog: check-in has abandon+clean, sync has allow-deletes+local-wins, and
+// checkout has steal on a foreign lock. A resumable checkout adds an
+// informational line, not a checkbox — resume is automatic when a released
+// token exists. Returns an empty string when the dialog has neither.
+func confirmCheckboxes(kind confirmKind, p confirmParams) string {
+	switch {
+	case kind == confirmCheckin:
+		return confirmCheckbox("abandon (release without sync check)", p.abandon, p.focus == confirmFocusAbandon) +
+			"\n" + confirmCheckbox("delete local copy", p.clean, p.focus == confirmFocusClean)
+	case kind == confirmSync:
+		return confirmCheckbox("allow deletes (off: deletes are skipped, reported pending)", p.allowDeletes, p.focus == confirmFocusAllowDeletes) +
+			"\n" + confirmCheckbox("local wins conflicts (off: sync stops on conflicts)", p.localWins, p.focus == confirmFocusLocalWins)
+	case kind == confirmCheckout && (p.foreign || p.resumable):
+		var lines []string
+		if p.foreign {
+			lines = append(lines, confirmCheckbox("steal the lock (take over their checkout)", p.steal, p.focus == confirmFocusSteal))
+		}
+		if p.resumable {
+			lines = append(lines, okStyle.Bold(true).Render("↻ existing local copy detected — it will be resumed (adopted, not re-downloaded)"))
+		}
+		return strings.Join(lines, "\n")
+	}
+	return ""
+}
+
 // confirmKind selects which action the confirm modal is guarding: deleting a
 // profile or checking one in. It changes the title, question, and
 // activate-button label but shares all the layout/sizing and focus logic.
@@ -126,6 +152,7 @@ type confirmParams struct {
 	steal          bool           // checkout "steal the lock" checkbox
 	foreign        bool           // checkout opened on a foreign lock: show holder + steal
 	holder         *marker.Marker // the foreign lock's marker; nil if unreadable
+	resumable      bool           // checkout opened with a released resume token: resume is automatic, an info line says so
 	allowDeletes   bool           // sync checkboxes
 	localWins      bool
 	wipe           *threewayrsync.WouldWipeError // confirmWipe only
@@ -146,6 +173,7 @@ func (m model) confirmParams() confirmParams {
 		steal:        m.checkoutSteal,
 		foreign:      m.confirmForeign,
 		holder:       holder,
+		resumable:    m.confirmResumable,
 		allowDeletes: m.syncAllowDeletes,
 		localWins:    m.syncLocalWins,
 		wipe:         m.wipe,
@@ -197,17 +225,7 @@ func confirmModal(kind confirmKind, name string, p confirmParams, termWidth int)
 	}
 
 	// The per-kind option checkboxes sit above the buttons.
-	checkbox := ""
-	switch {
-	case kind == confirmCheckin:
-		checkbox = confirmCheckbox("abandon (release without sync check)", p.abandon, p.focus == confirmFocusAbandon) +
-			"\n" + confirmCheckbox("delete local copy", p.clean, p.focus == confirmFocusClean)
-	case kind == confirmSync:
-		checkbox = confirmCheckbox("allow deletes (off: deletes are skipped, reported pending)", p.allowDeletes, p.focus == confirmFocusAllowDeletes) +
-			"\n" + confirmCheckbox("local wins conflicts (off: sync stops on conflicts)", p.localWins, p.focus == confirmFocusLocalWins)
-	case kind == confirmCheckout && p.foreign:
-		checkbox = confirmCheckbox("steal the lock (take over their checkout)", p.steal, p.focus == confirmFocusSteal)
-	}
+	checkbox := confirmCheckboxes(kind, p)
 
 	// The dialog gets web-style inner padding: dialogPad columns of margin on
 	// each side of the content, plus one blank row above and below (added when
@@ -452,11 +470,10 @@ func (m model) deleteConfirmedProfile() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// checkinConfirmed runs lifecycle.Runner.Checkin for m.confirmName once the
-// user has confirmed, returning to the profile's actions view with acting
-// state reset so the Activity box shows a fresh in-progress state.
-func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
-	name := m.confirmName
+// beginAction resets the profile's activity state for a fresh mutating run and
+// hands back the cancelable context the runner command will use. Shared by the
+// checkout/check-in/sync confirm paths.
+func (m *model) beginAction() context.Context {
 	m.mode = modeMain
 	m.sub = subActions
 	m.pane = paneActivity // lock focus to the Activity panel while it runs
@@ -471,6 +488,15 @@ func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.actionSeq++
+	return ctx
+}
+
+// checkinConfirmed runs lifecycle.Runner.Checkin for m.confirmName once the
+// user has confirmed, returning to the profile's actions view with acting
+// state reset so the Activity box shows a fresh in-progress state.
+func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
+	name := m.confirmName
+	ctx := (&m).beginAction()
 	// checkin has no --force: it only releases a this-machine-owned, fully-synced
 	// profile. The footer force toggle applies to checkout/sync, not here.
 	// Abandon skips the in-sync verification (the "start over" path).
@@ -483,24 +509,14 @@ func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 // reset so the Activity box shows a fresh in-progress state. Mirrors
 // checkinConfirmed. Force is the dialog's "steal the lock" checkbox — only
 // offered when the dialog opened on a foreign lock; left unchecked, a foreign
-// lock still refuses in the runner and the refusal shows in Activity.
+// lock still refuses in the runner and the refusal shows in Activity. Resume is
+// automatic: when the dialog opened with a released token detected
+// (confirmResumable), the kept local copy is adopted — a tampered copy still
+// refuses in the runner, listing the offending paths in Activity.
 func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
-	m.mode = modeMain
-	m.sub = subActions
-	m.pane = paneActivity // lock focus to the Activity panel while it runs
-	m.profile.acting = true
-	m.profile.actionErr = nil
-	m.profile.actionReport = nil
-	m.profile.applied = nil
-	m.profile.canceled = false
-	m.profile.statusScroll = 0
-	m.profile.opFilter = ""
-	m.profile.progress = nil
-	ctx, cancel := context.WithCancel(context.Background())
-	m.cancel = cancel
-	m.actionSeq++
-	opts := lifecycle.Options{Force: m.checkoutSteal}
+	ctx := (&m).beginAction()
+	opts := lifecycle.Options{Force: m.checkoutSteal, Resume: m.confirmResumable}
 	return m, checkoutCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)
 }
 
@@ -511,22 +527,10 @@ func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 // checkoutConfirmed.
 func (m model) syncConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
-	m.mode = modeMain
-	m.sub = subActions
-	m.pane = paneActivity // lock focus to the Activity panel while it runs
-	m.profile.acting = true
-	m.profile.actionErr = nil
-	m.profile.actionReport = nil
-	m.profile.applied = nil
-	m.profile.canceled = false
-	m.profile.statusScroll = 0
-	m.profile.opFilter = ""
+	ctx := (&m).beginAction()
 	// Snapshot the last Status result (if one ran) into planned totals; the
 	// run's allow-deletes checkbox decides whether deletes are in the plan.
 	m.profile.progress = newSyncProgress(m.profile.result, m.syncAllowDeletes)
-	ctx, cancel := context.WithCancel(context.Background())
-	m.cancel = cancel
-	m.actionSeq++
 	opts := lifecycle.Options{Force: m.syncLocalWins, AllowDeletes: m.syncAllowDeletes}
 	cmds := []tea.Cmd{syncCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)}
 	// Without planned totals the bar is a bouncing eye, which needs a clock.

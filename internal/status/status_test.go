@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/andresbott/dibs/internal/baseline"
 	"github.com/andresbott/dibs/internal/config"
@@ -412,5 +413,33 @@ func TestComputeInvalidSubpath(t *testing.T) {
 	baselineFromLocal(t, name, p.LocalRoot)
 	if _, err := Compute(context.Background(), name, p, ""); err == nil {
 		t.Fatal("want an error for a subpath escaping the root")
+	}
+}
+
+// A released baseline must not feed the status diff: with a marker present but
+// only a released state on disk, status reports "no baseline" — same as a
+// checkout held on another machine.
+func TestComputeTreatsReleasedBaselineAsAbsent(t *testing.T) {
+	name, p, local, remote := fixture(t)
+	writeFile(t, local, "file.txt", "data")
+	writeFile(t, remote, "file.txt", "data")
+	markCheckedOut(t, remote)
+	baselineFromLocal(t, name, local)
+	// Stamp the state released, as a checkin without --clean leaves it.
+	st0, ok, err := baseline.Load(name)
+	if err != nil || !ok {
+		t.Fatalf("load fixture state: ok=%v err=%v", ok, err)
+	}
+	st0.ReleasedAt = time.Unix(5000, 0).UTC()
+	if err := baseline.Save(st0); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Compute(context.Background(), name, p, "")
+	if err != nil {
+		t.Fatalf("compute: %v", err)
+	}
+	if !st.CheckedOut || st.HasBaseline {
+		t.Errorf("status = %+v, want CheckedOut=true HasBaseline=false over a released baseline", st)
 	}
 }

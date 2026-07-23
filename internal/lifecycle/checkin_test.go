@@ -26,8 +26,16 @@ func TestCheckinReleasesWhenInSync(t *testing.T) {
 	if _, ok, _ := marker.Read(remote); ok {
 		t.Error("marker must be removed after checkin")
 	}
-	if _, ok, _ := baseline.Load(name); ok {
-		t.Error("state must be cleared after checkin")
+	st, ok, _ := baseline.Load(name)
+	if !ok {
+		t.Error("checkin without --clean must keep the baseline as a released resume token")
+	} else {
+		if !st.IsReleased() {
+			t.Error("checkin without --clean must keep the baseline as a released resume token")
+		}
+		if len(st.Files) == 0 {
+			t.Error("the released baseline must keep the pre-release manifest")
+		}
 	}
 	if !rep.Released {
 		t.Error("report should mark the profile released")
@@ -156,8 +164,8 @@ func TestCheckinAbandonReleasesDespiteUnsyncedChanges(t *testing.T) {
 	if _, ok, _ := marker.Read(remote); ok {
 		t.Error("marker must be removed after abandon")
 	}
-	if _, ok, _ := baseline.Load(name); ok {
-		t.Error("state must be cleared after abandon")
+	if st, ok, _ := baseline.Load(name); !ok || !st.IsReleased() {
+		t.Error("abandon without --clean must keep the baseline as a released resume token")
 	}
 	// The remote keeps its (pre-edit) content; the local edit stays local.
 	if got, _ := os.ReadFile(filepath.Join(remote, "file.txt")); string(got) != "data" {
@@ -265,5 +273,27 @@ func TestCheckinBlockedByPendingDeletes(t *testing.T) {
 	}
 	if rep.Released {
 		t.Error("nothing may be released")
+	}
+}
+
+// --clean leaves nothing to resume: the local copy is gone, so the baseline
+// goes with it instead of dangling as a token for a copy that no longer exists.
+func TestCheckinCleanRemovesBaseline(t *testing.T) {
+	name, p, id := heldFixture(t)
+	if _, err := (Runner{ToolVersion: "test"}).Checkin(context.Background(), name, p, id, Options{Clean: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := baseline.Load(name); ok {
+		t.Error("--clean must remove the baseline along with the local copy")
+	}
+}
+
+func TestCheckinAbandonCleanRemovesBaseline(t *testing.T) {
+	name, p, id := heldFixture(t)
+	if _, err := (Runner{ToolVersion: "test"}).Checkin(context.Background(), name, p, id, Options{Abandon: true, Clean: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := baseline.Load(name); ok {
+		t.Error("--abandon --clean must remove the baseline along with the local copy")
 	}
 }

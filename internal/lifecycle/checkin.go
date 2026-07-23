@@ -80,8 +80,19 @@ func (r Runner) Checkin(ctx context.Context, name string, p config.Profile, id i
 	if err := pf.acc.Remove(ctx); err != nil {
 		return rep, err
 	}
-	if err := baseline.Remove(name); err != nil {
-		return rep, err
+	// Without --clean the local copy stays on disk, so the baseline is kept as
+	// a RELEASED resume token: checkout --resume validates the copy against it
+	// and adopts it without re-pulling. With --clean nothing survives to
+	// resume, so the state goes with the copy.
+	if opts.Clean {
+		if err := baseline.Remove(name); err != nil {
+			return rep, err
+		}
+	} else {
+		pf.state.ReleasedAt = r.now()
+		if err := baseline.Save(pf.state); err != nil {
+			return rep, err
+		}
 	}
 	rep.Released = true
 
@@ -132,8 +143,21 @@ func (r Runner) abandon(ctx context.Context, rep Report, name string, p config.P
 	if err := acc.Remove(ctx); err != nil {
 		return rep, err
 	}
-	if err := baseline.Remove(name); err != nil {
+	// Same released-token semantics as a plain checkin. Abandon skipped the
+	// in-sync verification, so the local copy may hold unsynced edits — the
+	// resume validation will name (and refuse) exactly those files, which is
+	// consistent with abandon meaning "this copy is not authoritative".
+	if opts.Clean {
+		if err := baseline.Remove(name); err != nil {
+			return rep, err
+		}
+	} else if st, ok, err := baseline.Load(name); err != nil {
 		return rep, err
+	} else if ok {
+		st.ReleasedAt = r.now()
+		if err := baseline.Save(st); err != nil {
+			return rep, err
+		}
 	}
 	rep.Released = true
 	if opts.Clean {

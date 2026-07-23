@@ -121,7 +121,7 @@ func ComputeWith(ctx context.Context, differ Differ, name string, p config.Profi
 	if err != nil {
 		return ProfileStatus{}, err
 	}
-	if !hasState {
+	if !hasState || st.IsReleased() {
 		return ProfileStatus{CheckedOut: true, HasBaseline: false}, nil
 	}
 

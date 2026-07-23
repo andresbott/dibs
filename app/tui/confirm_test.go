@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andresbott/dibs/internal/baseline"
 	"github.com/andresbott/dibs/internal/config"
 	"github.com/andresbott/dibs/internal/ident"
 	"github.com/andresbott/dibs/internal/lifecycle"
@@ -655,5 +657,125 @@ func TestWipeDialogClosesWithoutRunning(t *testing.T) {
 		if m.profile.acting {
 			t.Errorf("%v must not re-run anything", key)
 		}
+	}
+}
+
+// TestCheckoutModalResumeInfo: with a resume token available the checkout
+// dialog shows an informational "will be resumed" line (no checkbox — resume
+// is automatic); without one no resume wording appears. Foreign + resumable
+// shows the steal checkbox and the info line together.
+func TestCheckoutModalResumeInfo(t *testing.T) {
+	plain := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusCancel}, 80)
+	if strings.Contains(plain, "resumed") {
+		t.Errorf("without a token the checkout modal must not mention resuming:\n%s", plain)
+	}
+	offered := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusCancel, resumable: true}, 80)
+	if !strings.Contains(offered, "existing local copy detected") || !strings.Contains(offered, "resumed") {
+		t.Fatalf("resumable checkout modal missing the resume info line:\n%s", offered)
+	}
+	if strings.Contains(offered, "[ ] existing") || strings.Contains(offered, "[x] existing") {
+		t.Errorf("the resume info line must not render as a checkbox:\n%s", offered)
+	}
+	both := confirmModal(confirmCheckout, "work", confirmParams{focus: confirmFocusSteal, foreign: true, resumable: true}, 80)
+	for _, want := range []string{"steal the lock", "existing local copy detected"} {
+		if !strings.Contains(both, want) {
+			t.Fatalf("foreign+resumable modal missing %q:\n%s", want, both)
+		}
+	}
+}
+
+// TestCheckoutOpensWithResumeDetected: opening the checkout dialog on a profile
+// with a released token snapshots it (confirmResumable), which is what makes
+// the confirmed checkout resume automatically.
+func TestCheckoutOpensWithResumeDetected(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	local := t.TempDir()
+	if err := baseline.Save(&baseline.State{Profile: "work", Relpaths: []string{"."}, LocalRoot: local, ReleasedAt: time.Unix(5000, 0).UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	m := model{
+		sub:    subActions,
+		cfg:    &config.Config{Profiles: map[string]config.Profile{"work": {LocalRoot: local}}},
+		checks: map[string]*sanity.Result{"work": {CheckedOut: false}},
+	}
+	m.profile = newProfileView("work")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Checkout")
+	m2, _ := m.updateProfile(keyMsg("enter"))
+	got := m2.(model)
+	if got.mode != modeConfirm || got.confirmKind != confirmCheckout {
+		t.Fatalf("Checkout Enter should open the checkout dialog, got mode %d kind %d", got.mode, got.confirmKind)
+	}
+	if !got.confirmResumable {
+		t.Error("a released token should open the dialog with resume detected")
+	}
+}
+
+// TestCheckoutOpensWithoutResumeWhenNoToken: no released token — the dialog
+// must not flag resume, and the confirmed checkout runs plain.
+func TestCheckoutOpensWithoutResumeWhenNoToken(t *testing.T) {
+	t.Setenv("DIBS_STATE", t.TempDir())
+	m := model{
+		sub:    subActions,
+		cfg:    &config.Config{Profiles: map[string]config.Profile{"work": {LocalRoot: t.TempDir()}}},
+		checks: map[string]*sanity.Result{"work": {CheckedOut: false}},
+	}
+	m.profile = newProfileView("work")
+	m.profile.cursor = actionIndex(visibleActions(m.checks["work"], m.id, ""), "Checkout")
+	m2, _ := m.updateProfile(keyMsg("enter"))
+	if m2.(model).confirmResumable {
+		t.Error("without a token the dialog must not flag resume")
+	}
+}
+
+// TestCheckoutConfirmedAutoResumes: confirming a checkout that opened with a
+// resume token detected carries Resume into the options automatically —
+// asserted through the runner: the kept local copy is adopted (marker written,
+// no error) where a plain checkout would refuse the non-empty target.
+func TestCheckoutConfirmedAutoResumes(t *testing.T) {
+	requireRsync(t)
+	t.Setenv("DIBS_STATE", t.TempDir())
+	root := t.TempDir()
+	local := filepath.Join(root, "local")
+	remote := filepath.Join(root, "remote")
+	_ = os.MkdirAll(remote, 0o755)
+	if err := os.WriteFile(filepath.Join(remote, "keep.txt"), []byte("base"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := ident.Ident{By: "me@host", Host: "host"}
+	p := config.Profile{LocalRoot: local, RemoteRoot: remote}
+	r := lifecycle.Runner{ToolVersion: "test"}
+	ctx := context.Background()
+	if _, err := r.Checkout(ctx, "work", p, id, "", lifecycle.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Sync(ctx, "work", p, id, "", lifecycle.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Checkin(ctx, "work", p, id, lifecycle.Options{}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := model{
+		mode:             modeConfirm,
+		confirmKind:      confirmCheckout,
+		confirmName:      "work",
+		confirmResumable: true, // snapshotted at dialog open
+		confirmFocus:     confirmFocusDelete,
+		cfg:              &config.Config{Profiles: map[string]config.Profile{"work": p}},
+		id:               id,
+		runner:           r,
+	}
+	m.profile = newProfileView("work")
+
+	m2, cmd := m.activateConfirm()
+	if !m2.(model).profile.acting {
+		t.Fatal("confirming checkout should mark the profile as acting")
+	}
+	_, res := drainStream(t, cmd())
+	if res.err != nil {
+		t.Fatalf("a detected token should make the checkout resume automatically, got %v", res.err)
+	}
+	if got, ok, _ := marker.Read(remote); !ok || !got.OwnedBy(id.By, id.Host, "") {
+		t.Errorf("the marker should now be ours, got %+v", got)
 	}
 }

@@ -576,3 +576,20 @@ func TestSyncRenameDeletesNeedAllowDeletes(t *testing.T) {
 		t.Error("the emptied dir itself must be deleted from the remote with --allow-deletes")
 	}
 }
+
+// A released baseline is a resume token, not an active checkout: even when a
+// marker reappears under our identity (a crash between marker-remove and a
+// re-checkout, or a hand-copied marker), sync must refuse to merge against it —
+// its manifest describes a moment the remote has since moved past.
+func TestSyncRefusesReleasedBaseline(t *testing.T) {
+	name, p, id := heldFixture(t)
+	if _, err := (Runner{ToolVersion: "test"}).Checkin(context.Background(), name, p, id, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	remote := config.ExpandRoot(p.RemoteRoot)
+	_ = marker.Write(remote, &marker.Marker{CheckedOutBy: id.By, Host: id.Host, Profile: name, ProfileID: p.ID})
+	_, err := (Runner{}).Sync(context.Background(), name, p, id, "", Options{})
+	if err == nil || !strings.Contains(err.Error(), "no local baseline") {
+		t.Fatalf("sync over a released baseline must refuse as if no state existed, got %v", err)
+	}
+}

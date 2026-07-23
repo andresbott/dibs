@@ -12,11 +12,14 @@ import (
 )
 
 // TestScenarioResume covers the keep-and-resume lifecycle: checkin without
-// --clean leaves the local copy and a released baseline; the remote then drifts
-// (edit + add + delete by "someone else"); checkout --resume adopts the copy
-// without transferring anything; one sync reconciles the drift; and a locally
-// tampered copy is refused by name. Runs on all three transports — the daemon
-// leg exercises the pure-local validation against an rsync server remote.
+// --clean leaves the local copy and a released baseline; both sides then drift
+// — the remote gets an edit, an add, and a delete by "someone else", and a new
+// file is added locally (allowed: an addition is unsynced work, not tampering);
+// checkout --resume adopts the copy without transferring anything; one sync
+// reconciles the drift in both directions (remote changes land locally, the
+// local addition pushes); and a locally MODIFIED copy is refused by name. Runs
+// on all three transports — the daemon leg exercises the pure-local validation
+// against an rsync server remote.
 func TestScenarioResume(t *testing.T) {
 	forEachRemoteFlavor(t, func(t *testing.T, f remoteFixture) {
 		randomTree(t, f.dir)
@@ -57,7 +60,7 @@ func TestScenarioResume(t *testing.T) {
 		// against randomTree's 16-512 byte files, so the size+mtime quick-check
 		// cannot miss it even when the mtime lands in the same second.
 		var modified, deleted string
-		if !t.Run("the remote drifts while released", func(t *testing.T) {
+		if !t.Run("both sides drift while released", func(t *testing.T) {
 			var rels []string
 			for rel := range snapshot(t, f.local) {
 				rels = append(rels, rel)
@@ -74,6 +77,9 @@ func TestScenarioResume(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeRandomFile(t, filepath.Join(f.dir, "server-added.dat"))
+			// A file added LOCALLY while released is unsynced work, not
+			// tampering: resume must allow it and the reconcile sync pushes it.
+			writeRandomFile(t, filepath.Join(f.local, "local-added.dat"))
 		}) {
 			t.FailNow()
 		}
@@ -108,6 +114,12 @@ func TestScenarioResume(t *testing.T) {
 			}
 			if _, ok := local["server-added.dat"]; !ok {
 				t.Error("the remotely added file must have pulled")
+			}
+			// The snapshot equality above already proves it, but say it plainly:
+			// the file added locally while released survived the resume and
+			// reached the remote as a push.
+			if _, err := os.Stat(filepath.Join(f.dir, "local-added.dat")); err != nil {
+				t.Errorf("the locally added file must have pushed to the remote: %v", err)
 			}
 		}) {
 			t.FailNow()

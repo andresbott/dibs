@@ -140,15 +140,50 @@ func TestResumeRejectsModifiedLocalFile(t *testing.T) {
 	}
 }
 
-func TestResumeRejectsAddedLocalFile(t *testing.T) {
+// A file added locally while released is safe to allow: kept OUT of the
+// adopted baseline it is indistinguishable from a file created while checked
+// out, so the first sync classifies it as a push (or a conflict when someone
+// added the same path remotely) — never a delete on either side. Adopting it
+// INTO the base would be the dangerous direction (the next sync would mirror
+// a phantom remote deletion), which the baseline assertion below pins.
+func TestResumeAllowsAddedLocalFile(t *testing.T) {
 	name, p, id := releasedFixture(t)
 	local := config.ExpandRoot(p.LocalRoot)
-	if err := os.WriteFile(filepath.Join(local, "stray.txt"), []byte("S"), 0o644); err != nil {
+	remote := config.ExpandRoot(p.RemoteRoot)
+	if err := os.MkdirAll(filepath.Join(local, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := (Runner{ToolVersion: "test"}).Checkout(context.Background(), name, p, id, "", Options{Resume: true})
-	if err == nil || !strings.Contains(err.Error(), "stray.txt") {
-		t.Fatalf("resume must refuse and name the stray file, got %v", err)
+	if err := os.WriteFile(filepath.Join(local, "sub", "stray.txt"), []byte("S"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := (Runner{ToolVersion: "test"}).Checkout(context.Background(), name, p, id, "", Options{Resume: true})
+	if err != nil {
+		t.Fatalf("resume over a locally added file must succeed, got %v", err)
+	}
+	if !rep.Resumed {
+		t.Error("report must be flagged resumed")
+	}
+	st, _, _ := baseline.Load(name)
+	for _, path := range []string{"sub/stray.txt", "sub"} {
+		if _, ok := st.Files[path]; ok {
+			t.Errorf("%s must stay OUT of the adopted baseline (adopting it would turn the next sync into a phantom local delete)", path)
+		}
+	}
+	// The first sync pushes the addition — both sides end up in sync.
+	srep, err := (Runner{}).Sync(context.Background(), name, p, id, "", Options{})
+	if err != nil {
+		t.Fatalf("post-resume sync: %v", err)
+	}
+	// Both the new directory and its file classify as pushes (sorted).
+	if len(srep.Pushed) != 2 || srep.Pushed[0] != "sub" || srep.Pushed[1] != "sub/stray.txt" {
+		t.Errorf("the added dir and file must classify as pushes, got %+v", srep)
+	}
+	if len(srep.RemovedLocal)+len(srep.PendingLocal) != 0 {
+		t.Errorf("an added file must never plan as a local delete, got %+v", srep)
+	}
+	if got, err := os.ReadFile(filepath.Join(remote, "sub", "stray.txt")); err != nil || string(got) != "S" {
+		t.Errorf("remote sub/stray.txt = %q err=%v after sync, want S", got, err)
 	}
 }
 
@@ -303,8 +338,9 @@ func TestAdoptBaselineTable(t *testing.T) {
 	local := threewayrsync.Manifest{
 		"same.txt":    f(4),
 		"touched.txt": f(8), // size drifted
-		"extra.txt":   f(1), // not in base
+		"extra.txt":   f(1), // not in base: an addition, allowed but not adopted
 		"dir":         {IsDir: true},
+		"newdir":      {IsDir: true}, // not in base: same rule as an added file
 	}
 	adopted, violations := adoptBaseline(base, local)
 	if _, ok := adopted["same.txt"]; !ok {
@@ -316,12 +352,16 @@ func TestAdoptBaselineTable(t *testing.T) {
 	if _, ok := adopted["gone.txt"]; ok {
 		t.Error("base entries missing locally are pruned, not adopted")
 	}
-	if len(violations) != 2 {
-		t.Fatalf("violations = %v, want touched.txt and extra.txt", violations)
-	}
-	for _, v := range violations {
-		if !strings.Contains(v, "touched.txt") && !strings.Contains(v, "extra.txt") {
-			t.Errorf("unexpected violation %q", v)
+	// Local-only entries are unsynced additions: no violation, but they must
+	// stay OUT of the adopted base so the first sync classifies them as pushes
+	// (adopted, they would read as phantom remote deletions and mirror back as
+	// local deletes).
+	for _, path := range []string{"extra.txt", "newdir"} {
+		if _, ok := adopted[path]; ok {
+			t.Errorf("locally added %s must not be adopted into the base", path)
 		}
+	}
+	if len(violations) != 1 || !strings.Contains(violations[0], "touched.txt") {
+		t.Fatalf("violations = %v, want only touched.txt", violations)
 	}
 }

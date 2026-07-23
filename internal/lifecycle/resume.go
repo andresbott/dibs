@@ -15,13 +15,15 @@ import (
 )
 
 // resumeCheckout adopts a local copy left behind by a checkin without --clean.
-// The released baseline the checkin kept is the arbiter: every local entry must
-// match it exactly (size+mtime; directories presence-only) — matching entries
-// become the new baseline, base entries missing locally are pruned so the first
-// sync re-pulls them, and ANY local drift refuses with the paths listed. The
-// validation is purely local (one listing of the local tree, no remote round
-// trip), so remote drift never blocks a resume: the kept base lets the first
-// sync classify it correctly afterwards (edits pull, deletes mirror).
+// The released baseline the checkin kept is the arbiter: entries matching it
+// (size+mtime; directories presence-only) become the new baseline, base entries
+// missing locally are pruned so the first sync re-pulls them, local-only
+// entries ride along as unsynced additions the first sync pushes, and a
+// MODIFIED entry refuses with the paths listed (see adoptBaseline for why each
+// direction is safe). The validation is purely local (one listing of the local
+// tree, no remote round trip), so remote drift never blocks a resume: the kept
+// base lets the first sync classify it correctly afterwards (edits pull,
+// deletes mirror).
 // The caller has already handled the marker (foreign refuses / self widens),
 // so this only runs when no marker exists or Force stole it.
 func (r Runner) resumeCheckout(ctx context.Context, rep Report, name string, p config.Profile, id ident.Ident, localRoot string, acc marker.Accessor, relpath string, opts Options) (Report, error) {
@@ -103,17 +105,21 @@ func (r Runner) resumeCheckout(ctx context.Context, rep Report, name string, p c
 // derives the baseline a resumed checkout starts from. Entries present on both
 // sides with equal state are adopted (the local state, i.e. what is actually on
 // disk). Base entries missing locally are pruned — the copy shrank while
-// released, and the first sync harmlessly re-pulls them. A local entry that is
-// absent from the base or differs from it is a violation: the copy was touched
-// while nothing held the lock, and adopting it could either overwrite the
-// remote or silently lose the local edit — only the user can arbitrate.
+// released, and the first sync harmlessly re-pulls them. A local entry absent
+// from the base is an unsynced ADDITION: allowed, but deliberately NOT adopted —
+// out of the base it classifies as a push on the first sync (or a conflict if
+// the same path appeared remotely), exactly like a file created while checked
+// out; adopted, it would read as a phantom remote deletion and the next sync
+// would delete it locally. Only a MODIFIED entry (in base, differing state) is
+// a violation: pushing it could overwrite a newer remote and pulling would lose
+// the local edit — only the user can arbitrate which side wins.
 func adoptBaseline(base, local threewayrsync.Manifest) (adopted threewayrsync.Manifest, violations []string) {
 	adopted = threewayrsync.Manifest{}
 	for path, lst := range local {
 		bst, inBase := base[path]
 		switch {
 		case !inBase:
-			violations = append(violations, path+" (added while released)")
+			// unsynced local addition: kept out of the base, pushed by sync
 		case !lst.Equal(bst):
 			violations = append(violations, path+" (modified while released)")
 		default:

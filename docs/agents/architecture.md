@@ -77,13 +77,17 @@ remembering:
   `--clean` (and `--abandon --clean`) removes the state along with the copy.
 - **`checkout --resume` adopts a kept local copy without re-downloading:** it
   lists the local tree through the engine (same scope/exclude/ignore as sync) and
-  requires every entry to match the released base exactly. Matching entries become
-  the new baseline; base entries missing locally are pruned (first sync re-pulls);
-  any local-only or differing path refuses with the paths listed — the base is the
-  arbiter of *which side moved*, so remote drift never blocks a resume (it pulls or
-  mirrors on the first sync) while local drift always does (only the user can
-  arbitrate it). The validation is purely local, so all transports behave
-  identically. Lock semantics are untouched: a foreign marker still refuses
+  validates every entry against the released base. Matching entries become the
+  new baseline; base entries missing locally are pruned (first sync re-pulls);
+  local-only entries are unsynced ADDITIONS — allowed, but kept OUT of the
+  adopted base so the first sync classifies them as pushes (adopted, they would
+  read as phantom remote deletions and mirror back as local deletes); only a
+  MODIFIED entry (in base, differing size/mtime) refuses with the paths listed —
+  the base is the arbiter of *which side moved*, so remote drift never blocks a
+  resume (it pulls or mirrors on the first sync) and local additions ride along,
+  while a local modification always refuses (pushing could overwrite a newer
+  remote, pulling would lose the edit — only the user can arbitrate). The
+  validation is purely local, so all transports behave identically. Lock semantics are untouched: a foreign marker still refuses
   (`--force` to steal), a self-held marker still widens. The vacancy guard's
   refusal hints at `--resume` when a matching released token exists. A crash window
   exists: if the process dies after reactivating the baseline but before writing the

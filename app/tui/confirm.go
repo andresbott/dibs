@@ -130,6 +130,9 @@ const (
 	// (abandon + re-checkout) is named in the dialog text and taken from the
 	// profile view, not from here.
 	confirmWipe
+	// confirmDeleteServer guards deleting a server entry, warning when profiles
+	// still reference it.
+	confirmDeleteServer
 )
 
 // confirmButton renders a bracketed [ label ] button: accent+bold when it is the
@@ -156,6 +159,7 @@ type confirmParams struct {
 	allowDeletes   bool           // sync checkboxes
 	localWins      bool
 	wipe           *threewayrsync.WouldWipeError // confirmWipe only
+	serverRefs     []string                      // confirmDeleteServer: profiles referencing the server
 }
 
 // confirmParams gathers the model state the open confirm dialog renders from:
@@ -177,6 +181,7 @@ func (m model) confirmParams() confirmParams {
 		allowDeletes: m.syncAllowDeletes,
 		localWins:    m.syncLocalWins,
 		wipe:         m.wipe,
+		serverRefs:   m.serverRefs,
 	}
 }
 
@@ -206,6 +211,13 @@ func confirmModal(kind confirmKind, name string, p confirmParams, termWidth int)
 		title, question, activate, dismiss = "Confirm cancel", "Stop the running operation?", "Stop", "Keep running"
 	case confirmWipe:
 		title, question = "Sync stopped", wipeQuestion(name, p.wipe)
+	case confirmDeleteServer:
+		title = "Confirm delete"
+		question = "Delete server \"" + name + "\"?"
+		if len(p.serverRefs) > 0 {
+			question += "\nStill used by: " + strings.Join(p.serverRefs, ", ")
+		}
+		activate = "Delete"
 	}
 	sep := helpTextStyle.Render(" · ")
 	var buttons, help string
@@ -414,6 +426,8 @@ func (m model) activateConfirm() (tea.Model, tea.Cmd) {
 		return m.syncConfirmed()
 	case confirmCancel:
 		return m.cancelAction()
+	case confirmDeleteServer:
+		return m.deleteConfirmedServer()
 	}
 	return m.deleteConfirmedProfile()
 }

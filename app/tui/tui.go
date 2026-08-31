@@ -28,6 +28,8 @@ const (
 	modeForm
 	modeConfirm
 	modeSettings
+	modeServers
+	modeServerForm
 )
 
 // mainSub selects what modeMain's top box shows. Enter (subList) reveals the
@@ -63,6 +65,8 @@ type model struct {
 	pane         actPane // which panel is focused while sub == subActions
 	form         formModel
 	settings     settingsModel
+	servers      serversModel
+	serverForm   serverFormModel
 	profile      profileModel
 	confirmName  string
 	confirmKind  confirmKind
@@ -96,6 +100,9 @@ type model struct {
 	// checkinAbandon is the check-in dialog's "abandon" checkbox: release the
 	// lock without the in-sync verification (the TUI equivalent of --abandon).
 	checkinAbandon bool
+	// serverRefs carries the list of profiles referencing a server when the
+	// confirmDeleteServer dialog opens.
+	serverRefs []string
 	// wipe carries the engine wipe-valve stop the confirmWipe dialog explains:
 	// the side that would be emptied and how many files. Set when a sync result
 	// carries a *threewayrsync.WouldWipeError; cleared when the dialog closes.
@@ -190,6 +197,7 @@ func (m *model) resize(ws tea.WindowSizeMsg) {
 		m.form.remote.ensureVisible()
 	}
 	m.settings.setWidth(ws.Width)
+	m.serverForm.setWidth(ws.Width)
 }
 
 func (m model) Init() tea.Cmd {
@@ -273,6 +281,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	case modeSettings:
 		return m.updateSettings(msg)
+	case modeServers:
+		return m.updateServers(msg)
+	case modeServerForm:
+		return m.updateServerForm(msg)
 	default:
 		return m.updateMain(msg)
 	}
@@ -322,6 +334,8 @@ func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "i":
 		return m.openSettings()
+	case "v":
+		return m.openServers()
 	case "a":
 		// A fresh profile starts with the default ignore list (file-manager
 		// metadata droppings); the user can remove the rows in the form.
@@ -1102,6 +1116,10 @@ func (m model) View() string {
 		return m.overlayModal(confirmModal(m.confirmKind, m.confirmName, m.confirmParams(), m.width))
 	case modeSettings:
 		return m.overlayModal(m.settings.View())
+	case modeServers:
+		return m.overlayModal(m.serversView())
+	case modeServerForm:
+		return m.overlayModal(m.serverForm.View())
 	default:
 		return m.mainView(false)
 	}
@@ -1323,4 +1341,204 @@ func (m model) statusMaxScroll() int {
 		return max
 	}
 	return 0
+}
+
+// --- Server management ---
+
+// openServers opens the servers list modal.
+func (m model) openServers() (tea.Model, tea.Cmd) {
+	m.refreshServers()
+	m.mode = modeServers
+	return m, nil
+}
+
+// refreshServers updates the servers list from the config.
+func (m *model) refreshServers() {
+	m.servers.setNames(sortedServerNames(m.cfg.Servers))
+}
+
+// updateServers handles the servers list modal: arrow keys to move, enter/e to
+// edit, a to add, d to delete, esc to close.
+func (m model) updateServers(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch key.String() {
+	case "esc", "q":
+		m.mode = modeMain
+		return m, nil
+	case "a":
+		m.serverForm = newServerForm("", config.Server{})
+		m.serverForm.setWidth(m.width)
+		m.mode = modeServerForm
+		return m, textinput.Blink
+	case "e", "enter":
+		if name, ok := m.servers.selected(); ok {
+			m.serverForm = newServerForm(name, m.cfg.Servers[name])
+			m.serverForm.setWidth(m.width)
+			m.mode = modeServerForm
+			return m, textinput.Blink
+		}
+		return m, nil
+	case "d":
+		if name, ok := m.servers.selected(); ok {
+			m.serverRefs = serverRefCount(m.cfg, name)
+			m.confirmName = name
+			m.confirmKind = confirmDeleteServer
+			m.confirmFocus = confirmFocusCancel
+			m.mode = modeConfirm
+			return m, nil
+		}
+		return m, nil
+	case "up", "w":
+		m.servers.moveUp()
+		return m, nil
+	case "down", "s":
+		m.servers.moveDown()
+		return m, nil
+	}
+	return m, nil
+}
+
+// updateServerForm handles the server form modal: focus movement, esc to cancel,
+// enter/space to save. Mirrors updateSettings.
+func (m model) updateServerForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		var cmd tea.Cmd
+		m.serverForm, cmd = m.serverForm.update(msg)
+		return m, cmd
+	}
+	switch key.String() {
+	case "esc":
+		m.mode = modeServers
+		return m, nil
+	case "tab", "down":
+		return m, m.serverForm.focusNext()
+	case "shift+tab", "up":
+		return m, m.serverForm.focusPrev()
+	case "left":
+		if m.serverForm.focus == m.serverForm.cancelSlot() {
+			return m, m.serverForm.setFocus(m.serverForm.saveSlot())
+		}
+	case "right":
+		if m.serverForm.focus == m.serverForm.saveSlot() {
+			return m, m.serverForm.setFocus(m.serverForm.cancelSlot())
+		}
+	case "enter":
+		if m.serverForm.focus == m.serverForm.cancelSlot() {
+			m.mode = modeServers
+			return m, nil
+		}
+		// On an input or on Save: submit.
+		return m.submitServer()
+	case " ":
+		switch m.serverForm.focus {
+		case m.serverForm.saveSlot():
+			return m.submitServer()
+		case m.serverForm.cancelSlot():
+			m.mode = modeServers
+			return m, nil
+		}
+		// On an input: fall through to type the space.
+	}
+	var cmd tea.Cmd
+	m.serverForm, cmd = m.serverForm.update(msg)
+	return m, cmd
+}
+
+// submitServer saves the edited server to disk. On failure it keeps the modal
+// open with an error. On success it returns to the servers list.
+func (m model) submitServer() (tea.Model, tea.Cmd) {
+	if err := m.serverForm.validate(); err != nil {
+		m.serverForm.err = err.Error()
+		return m, nil
+	}
+	name, srv := m.serverForm.values()
+	origName := m.serverForm.origName
+
+	// Check for duplicate name when renaming
+	if name != origName {
+		if _, exists := m.cfg.Servers[name]; exists {
+			m.serverForm.err = "server \"" + name + "\" already exists"
+			return m, nil
+		}
+	}
+
+	// Save with rollback
+	prev := cloneServers(m.cfg.Servers)
+	if origName != "" && origName != name {
+		delete(m.cfg.Servers, origName)
+	}
+	if m.cfg.Servers == nil {
+		m.cfg.Servers = make(map[string]config.Server)
+	}
+	m.cfg.Servers[name] = srv
+
+	if err := commitServers(m.path, m.cfg, prev); err != nil {
+		m.serverForm.err = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.refreshServers()
+	m.mode = modeServers
+	return m, nil
+}
+
+// deleteConfirmedServer removes m.confirmName from the config and persists it,
+// rolling back in memory if the save fails.
+func (m model) deleteConfirmedServer() (tea.Model, tea.Cmd) {
+	prev := cloneServers(m.cfg.Servers)
+	delete(m.cfg.Servers, m.confirmName)
+	if err := commitServers(m.path, m.cfg, prev); err != nil {
+		m.err = err
+		m.mode = modeServers
+		return m, nil
+	}
+	m.refreshServers()
+	m.mode = modeServers
+	m.err = nil
+	return m, nil
+}
+
+// serversView renders the servers list modal.
+func (m model) serversView() string {
+	width := 60
+	if m.width > 0 && m.width-8 < width {
+		width = m.width - 8
+	}
+	if width < 30 {
+		width = 30
+	}
+
+	height := 20
+	if len(m.servers.names) > height {
+		height = len(m.servers.names)
+	}
+	if height < 3 {
+		height = 3
+	}
+	if height > 30 {
+		height = 30
+	}
+
+	var content strings.Builder
+	if len(m.servers.names) == 0 {
+		content.WriteString(helpTextStyle.Render("No servers configured"))
+	} else {
+		content.WriteString(m.servers.view(width-4, height))
+	}
+
+	content.WriteString("\n\n")
+	sep := helpTextStyle.Render(" · ")
+	content.WriteString(hint("a", "Add") + sep + hint("e/↵", "Edit") + sep + hint("d", "Delete") + sep + hint("esc", "Close"))
+
+	if m.err != nil {
+		content.WriteString("\n\n")
+		content.WriteString(errStyle.Render(m.err.Error()))
+	}
+
+	body := lipgloss.NewStyle().Padding(0, 1).Render(content.String())
+	return titledBox("Servers", body, width, lipgloss.Height(body)+2, true)
 }

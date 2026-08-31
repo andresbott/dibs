@@ -34,7 +34,7 @@ func hint(k, label string) string {
 func renderFooter(width int) string {
 	parts := []string{
 		hint("a", "Add"), hint("e", "Edit"), hint("d", "Delete"),
-		hint("i", "Identity"), hint("↵", "Actions"), hint("q", "Quit"),
+		hint("i", "Identity"), hint("v", "Servers"), hint("↵", "Actions"), hint("q", "Quit"),
 	}
 	return ansi.Truncate(" "+strings.Join(parts, "  "), width, "")
 }

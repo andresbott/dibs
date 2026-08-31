@@ -264,3 +264,44 @@ func TestDetailsShowPendingStatsAfterStatus(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderDetailsServerBackedProfile: a server-backed profile (Server +
+// RemoteModule, empty RemoteRoot) passed directly to renderDetails would show
+// a blank Remote line. The TUI resolves such profiles before rendering, so the
+// Details box shows the composed rsync:// URL.
+func TestRenderDetailsServerBackedProfile(t *testing.T) {
+	cfg := &config.Config{
+		Servers: map[string]config.Server{
+			"nas": {Host: "192.168.1.100", Port: 8873, User: "backup"},
+		},
+		Profiles: map[string]config.Profile{
+			"docs": {
+				LocalRoot:    "/home/me/docs",
+				Server:       "nas",
+				RemoteModule: "data/docs",
+			},
+		},
+	}
+	// The stored profile has empty RemoteRoot (server-backed).
+	stored := cfg.Profiles["docs"]
+	if stored.RemoteRoot != "" {
+		t.Fatalf("test setup: stored profile should have empty RemoteRoot, got %q", stored.RemoteRoot)
+	}
+	// Resolve for display.
+	resolved, err := cfg.ResolveProfile("docs")
+	if err != nil {
+		t.Fatalf("ResolveProfile failed: %v", err)
+	}
+	// The resolved profile has the composed URL.
+	if !strings.Contains(resolved.RemoteRoot, "rsync://") || !strings.Contains(resolved.RemoteRoot, "192.168.1.100") {
+		t.Errorf("resolved RemoteRoot should be rsync://..., got %q", resolved.RemoteRoot)
+	}
+	// renderDetails with the resolved profile shows the URL, not a blank line.
+	d := renderDetails("docs", resolved, nil, 60)
+	if !strings.Contains(d, "rsync://") {
+		t.Errorf("Details should show resolved rsync:// remote, got:\n%s", d)
+	}
+	if !strings.Contains(d, "192.168.1.100") || !strings.Contains(d, "data/docs") {
+		t.Errorf("Details should show host and module, got:\n%s", d)
+	}
+}

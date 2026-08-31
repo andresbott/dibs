@@ -106,10 +106,6 @@ func TestRemoteBrowseRequiresServer(t *testing.T) {
 	}
 }
 
-// TestRemoteBrowseBadPortRejected is obsolete: port validation now happens on
-// the server CRUD form, not here. The browse just uses the selected server's
-// connection info.
-
 func TestRemoteBrowseSelectModuleListsDirs(t *testing.T) {
 	dirs := map[string][]string{"": {"alpha", "beta"}}
 	m, cmd := openRsyncBrowse(t, testModules, dirs)

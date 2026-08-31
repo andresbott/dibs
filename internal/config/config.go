@@ -34,7 +34,7 @@ type Profile struct {
 	// at the same remote root must not pass each other's ownership check.
 	ID         string `yaml:"id,omitempty"`
 	LocalRoot  string `yaml:"local_root"`
-	RemoteRoot string `yaml:"remote_root"`
+	RemoteRoot string `yaml:"remote_root,omitempty"`
 	// SSHIdentityFile, for an ssh:// remote, is the private key handed to ssh -i.
 	SSHIdentityFile string `yaml:"ssh_identity_file,omitempty"`
 	// Server, when non-empty, names the Config.Servers entry this profile's

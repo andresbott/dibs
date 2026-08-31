@@ -1189,7 +1189,15 @@ func (m model) mainView(dim bool) string {
 		topBody = m.list.view(leftW-2, topH-2)
 		name, _ = m.list.selected()
 	}
-	detailsBody := renderDetails(name, m.cfg.Profiles[name], m.checks[name], leftW-2)
+	// Resolve server-backed profiles for display so the Details box shows the
+	// composed rsync:// URL rather than a blank RemoteRoot. Fall back to the
+	// stored profile on resolve error so broken profiles still render (their
+	// ConfigErr is surfaced in the Actions box).
+	displayProfile := m.cfg.Profiles[name]
+	if resolved, err := m.cfg.ResolveProfile(name); err == nil {
+		displayProfile = resolved
+	}
+	detailsBody := renderDetails(name, displayProfile, m.checks[name], leftW-2)
 	if m.sub == subActions {
 		detailsBody += pendingBlock(m.profile.result)
 		detailsBody += contentsBlock(m.profile.fileStats, m.profile.scanning, m.profile.statErr)

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // serverFormModel is the server add/edit form: fixed labeled underline inputs
@@ -296,11 +297,7 @@ func (l serversModel) view(width, height int) string {
 			prefix = "▌ "
 			line = selectedRowStyle.Render(line)
 		}
-		// Truncate lines to width
-		if len(prefix+line) > width {
-			line = line[:width-len(prefix)]
-		}
-		b.WriteString(prefix + line)
+		b.WriteString(ansi.Truncate(prefix+line, width, ""))
 	}
 	return b.String()
 }

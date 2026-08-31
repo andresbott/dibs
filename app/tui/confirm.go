@@ -348,7 +348,11 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "y", "Y":
 		return m.activateConfirm()
 	case "n", "N", "esc":
-		m.mode = modeMain
+		if m.confirmKind == confirmDeleteServer {
+			m.mode = modeServers
+		} else {
+			m.mode = modeMain
+		}
 		m.wipe = nil
 		return m, nil
 	case "tab":
@@ -385,7 +389,11 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.confirmFocus == confirmFocusDelete {
 			return m.activateConfirm()
 		}
-		m.mode = modeMain
+		if m.confirmKind == confirmDeleteServer {
+			m.mode = modeServers
+		} else {
+			m.mode = modeMain
+		}
 		m.wipe = nil
 		return m, nil
 	}

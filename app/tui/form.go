@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/andresbott/dibs/internal/config"
@@ -265,14 +266,7 @@ func (f *formModel) setServers(servers map[string]config.Server) {
 	for name := range servers {
 		f.serverNames = append(f.serverNames, name)
 	}
-	// Sort for stable order
-	for i := 0; i < len(f.serverNames); i++ {
-		for j := i + 1; j < len(f.serverNames); j++ {
-			if f.serverNames[i] > f.serverNames[j] {
-				f.serverNames[i], f.serverNames[j] = f.serverNames[j], f.serverNames[i]
-			}
-		}
-	}
+	sort.Strings(f.serverNames)
 }
 
 // selectServer sets serverSel to the index of the named server, or -1 if not found.

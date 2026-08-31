@@ -1000,9 +1000,6 @@ func TestTypeSwitchPreservesTypedValues(t *testing.T) {
 	}
 }
 
-// TestValuesComposesRsyncURL is obsolete: values() no longer composes rsync://
-// URLs. The new behavior (Server+RemoteModule) is tested by TestFormRsyncValuesUseServerRef.
-
 // TestValuesComposesSSH: values() under the ssh kind reads the URL and identity
 // file.
 func TestValuesComposesSSH(t *testing.T) {

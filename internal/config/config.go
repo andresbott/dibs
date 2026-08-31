@@ -12,6 +12,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Server is a reusable rsync daemon connection referenced by name from
+// profiles: the host/port/user/password-file an rsync:// remote needs, split
+// out of Profile so several profiles can share one daemon's connection.
+type Server struct {
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port,omitempty"`          // 0 = default 873
+	User         string `yaml:"user,omitempty"`          // "" = none
+	PasswordFile string `yaml:"password_file,omitempty"` // handed to rsync --password-file
+}
+
 // Profile is a named pair of roots: one on fast local disk, one on the network share.
 // RemoteRoot is a plain absolute path (a mounted share), or an "ssh://[user@]host[:port]/abs/path"
 // or "rsync://[user@]host[:port]/module[/path]" endpoint URL (see RemoteEndpoint).
@@ -63,6 +73,7 @@ type Config struct {
 	// RsyncPath overrides the rsync binary used for all transfers; empty means "rsync"
 	// from PATH. Useful on macOS, where /usr/bin/rsync is Apple's openrsync.
 	RsyncPath string             `yaml:"rsync_path,omitempty"`
+	Servers   map[string]Server  `yaml:"servers,omitempty"`
 	Profiles  map[string]Profile `yaml:"profiles"`
 }
 

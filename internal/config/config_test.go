@@ -392,3 +392,25 @@ func TestSampleConfigResolves(t *testing.T) {
 		}
 	}
 }
+
+func TestServersRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	cfg := &config.Config{
+		Servers: map[string]config.Server{
+			"nas": {Host: "nas.local", Port: 8730, User: "bob", PasswordFile: "/etc/rsyncd.pw"},
+		},
+		Profiles: map[string]config.Profile{},
+	}
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := config.Server{Host: "nas.local", Port: 8730, User: "bob", PasswordFile: "/etc/rsyncd.pw"}
+	if got.Servers["nas"] != want {
+		t.Fatalf("server round-trip: got %+v want %+v", got.Servers["nas"], want)
+	}
+}

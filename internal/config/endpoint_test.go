@@ -182,3 +182,59 @@ func TestRemoteEndpointUnresolvedServerErrors(t *testing.T) {
 		t.Fatal("expected error resolving an endpoint on an unresolved (Server set) profile")
 	}
 }
+
+func TestResolveProfileRsync(t *testing.T) {
+	cfg := &Config{
+		Servers:  map[string]Server{"nas": {Host: "nas.local", Port: 8730, User: "bob", PasswordFile: "/etc/pw"}},
+		Profiles: map[string]Profile{"docs": {Server: "nas", RemoteModule: "share/docs", LocalRoot: "/home/bob/docs"}},
+	}
+	got, err := cfg.ResolveProfile("docs")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got.Server != "" {
+		t.Fatalf("Server not cleared: %q", got.Server)
+	}
+	if got.RemoteRoot != "rsync://bob@nas.local:8730/share/docs" {
+		t.Fatalf("RemoteRoot = %q", got.RemoteRoot)
+	}
+	if got.RsyncdPasswordFile != "/etc/pw" {
+		t.Fatalf("password file = %q", got.RsyncdPasswordFile)
+	}
+	if got.LocalRoot != "/home/bob/docs" {
+		t.Fatalf("LocalRoot not preserved: %q", got.LocalRoot)
+	}
+}
+
+func TestResolveProfilePassthrough(t *testing.T) {
+	cfg := &Config{Profiles: map[string]Profile{
+		"ssh":   {RemoteRoot: "ssh://h/x", LocalRoot: "/l"},
+		"local": {RemoteRoot: "/mnt/share", LocalRoot: "/l"},
+	}}
+	for _, name := range []string{"ssh", "local"} {
+		got, err := cfg.ResolveProfile(name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got.RemoteRoot != cfg.Profiles[name].RemoteRoot {
+			t.Fatalf("%s passthrough changed RemoteRoot: %q", name, got.RemoteRoot)
+		}
+	}
+}
+
+func TestResolveProfileErrors(t *testing.T) {
+	cfg := &Config{Profiles: map[string]Profile{
+		"noserver": {Server: "ghost", RemoteModule: "m"},
+		"old":      {RemoteRoot: "rsync://nas/share/docs"},
+	}}
+	if _, err := cfg.ResolveProfile("missing"); err == nil {
+		t.Fatal("missing profile accepted")
+	}
+	if _, err := cfg.ResolveProfile("noserver"); err == nil {
+		t.Fatal("unknown server accepted")
+	}
+	_, err := cfg.ResolveProfile("old")
+	if err == nil || !strings.Contains(err.Error(), "recreate this profile") {
+		t.Fatalf("old embedded rsync remote not rejected with recreate message: %v", err)
+	}
+}

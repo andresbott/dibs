@@ -37,16 +37,15 @@ func fakeListers(f *formModel, modules []threewayrsync.Module, dirs map[string][
 func openRsyncBrowse(t *testing.T, modules []threewayrsync.Module, dirs map[string][]string) (model, tea.Cmd) {
 	t.Helper()
 	m := openAddForm(t)
+	// Set up a server so the form has something to select
+	m.form.setServers(map[string]config.Server{"nas": {Host: "nas.local"}})
 	fakeListers(&m.form, modules, dirs, nil)
 	m = tabToTypeSel(t, m)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Host input
-	m = typeRunes(t, m, "nas")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Server selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → select nas
 	// Reach the Module/path row's Browse button via its input.
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Port
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // User
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Password file
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Module/path input
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Module/path input
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // its Browse button
 	if m.form.focusKind() != slotButton || m.form.focusField() != idxModulePath {
 		t.Fatalf("setup: want the Module/path Browse button, got slot %d field %d", m.form.focus, m.form.focusField())
@@ -90,43 +89,20 @@ func TestRemoteBrowseOpensLoadingAndListsModules(t *testing.T) {
 	}
 }
 
-func TestRemoteBrowseRequiresHost(t *testing.T) {
+func TestRemoteBrowseRequiresServer(t *testing.T) {
 	m := openAddForm(t)
+	m.form.setServers(map[string]config.Server{"nas": {Host: "nas.local"}})
 	m = tabToTypeSel(t, m)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync, host left empty
-	for range 4 {
-		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync, server not selected
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Server selector
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Module/path input
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Browse button
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.form.browsingRemote {
-		t.Fatal("browse without a host must not open the browser")
+		t.Fatal("browse without a selected server must not open the browser")
 	}
 	if m.form.err == "" {
-		t.Fatal("browse without a host should surface a form error")
-	}
-}
-
-func TestRemoteBrowseBadPortRejected(t *testing.T) {
-	m := openAddForm(t)
-	fakeListers(&m.form, testModules, nil, nil)
-	m = tabToTypeSel(t, m)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Host
-	m = typeRunes(t, m, "nas")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Port
-	m = typeRunes(t, m, "eight")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // User
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Password file
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Module/path
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.form.browsingRemote {
-		t.Fatal("browse with a non-numeric port must not open the browser")
-	}
-	if m.form.err != "port must be a number" {
-		t.Fatalf("form err = %q", m.form.err)
+		t.Fatal("browse without a selected server should surface a form error")
 	}
 }
 
@@ -219,7 +195,8 @@ func TestRemoteBrowseEscKeepsValue(t *testing.T) {
 	m := openAddForm(t)
 	fakeListers(&m.form, testModules, nil, nil)
 	m.form.kind = remoteRsync
-	m.form.inputs[idxHost].SetValue("nas")
+	m.form.setServers(map[string]config.Server{"nas": {Host: "nas.local"}})
+	m.form.selectServer("nas")
 	m.form.inputs[idxModulePath].SetValue("data/prior")
 	m.form.browseSeq++
 	m.form.browsingRemote = true
@@ -236,16 +213,15 @@ func TestRemoteBrowseEscKeepsValue(t *testing.T) {
 func TestRemoteBrowseResumesFromFieldValue(t *testing.T) {
 	var calls []string
 	m := openAddForm(t)
+	m.form.setServers(map[string]config.Server{"nas": {Host: "nas.local"}})
 	fakeListers(&m.form, testModules, map[string][]string{"inner": {"x"}}, &calls)
 	m = tabToTypeSel(t, m)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = typeRunes(t, m, "nas")
-	for range 4 { // Port, User, Password file, Module/path
-		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	}
-	m = typeRunes(t, m, "data/inner") // Module/path field
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // → rsync
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})               // Server selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // → select nas
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})               // Module/path field
+	m = typeRunes(t, m, "data/inner")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // Browse button
 	nm, cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
 	m = nm.(model)
 	// A pre-filled module skips the module list and lists its path directly.
@@ -343,23 +319,25 @@ func TestRemoteBrowseTabToButtonsAndSelect(t *testing.T) {
 }
 
 // TestRemoteBrowseFullFlowPersists drives the whole journey through the model:
-// pick a module, descend, select a folder, save — the composed rsync:// URL
-// lands in the config file.
+// select a server, pick a module, descend, select a folder, save — the
+// Server+RemoteModule land in the config file.
 func TestRemoteBrowseFullFlowPersists(t *testing.T) {
 	pth := filepath.Join(t.TempDir(), "config.yaml")
-	m := newModel(pth, &config.Config{Profiles: map[string]config.Profile{}})
+	cfg := &config.Config{
+		Profiles: map[string]config.Profile{},
+		Servers:  map[string]config.Server{"nas": {Host: "nas.local"}},
+	}
+	m := newModel(pth, cfg)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	fakeListers(&m.form, testModules, map[string][]string{"": {"photos"}}, nil)
 	m = typeRunes(t, m, "pics")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // remote-type selector
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Host
-	m = typeRunes(t, m, "nas")
-	for range 4 {
-		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Module/path input
-	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Server selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → select nas
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Module/path input
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Browse
 	nm, cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
 	m = deliver(t, nm.(model), cmd)                        // module list
@@ -377,7 +355,11 @@ func TestRemoteBrowseFullFlowPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := saved.Profiles["pics"].RemoteRoot; got != "rsync://nas/data/photos" {
-		t.Fatalf("saved remote root = %q, want rsync://nas/data/photos", got)
+	got := saved.Profiles["pics"]
+	if got.Server != "nas" || got.RemoteModule != "data/photos" {
+		t.Fatalf("saved Server=%q RemoteModule=%q, want nas, data/photos", got.Server, got.RemoteModule)
+	}
+	if got.RemoteRoot != "" {
+		t.Fatalf("saved RemoteRoot=%q, want empty (server-backed)", got.RemoteRoot)
 	}
 }

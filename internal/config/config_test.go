@@ -392,3 +392,37 @@ func TestSampleConfigResolves(t *testing.T) {
 		}
 	}
 }
+
+func TestServersRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	cfg := &config.Config{
+		Servers: map[string]config.Server{
+			"nas": {Host: "nas.local", Port: 8730, User: "bob", PasswordFile: "/etc/rsyncd.pw"},
+		},
+		Profiles: map[string]config.Profile{},
+	}
+	if err := config.Save(path, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	want := config.Server{Host: "nas.local", Port: 8730, User: "bob", PasswordFile: "/etc/rsyncd.pw"}
+	if got.Servers["nas"] != want {
+		t.Fatalf("server round-trip: got %+v want %+v", got.Servers["nas"], want)
+	}
+}
+
+func TestValidateServer(t *testing.T) {
+	if err := config.ValidateServer(config.Server{Host: "nas"}); err != nil {
+		t.Fatalf("valid server rejected: %v", err)
+	}
+	if err := config.ValidateServer(config.Server{}); err == nil {
+		t.Fatal("empty host accepted")
+	}
+	if err := config.ValidateServer(config.Server{Host: "nas", Port: 70000}); err == nil {
+		t.Fatal("out-of-range port accepted")
+	}
+}

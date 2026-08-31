@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"time"
 
@@ -106,33 +105,28 @@ func (f *formModel) listers() (moduleLister, dirLister) {
 }
 
 // openRemotePicker opens the daemon browser for the module-path field: it
-// builds the daemon from the form's connection fields (surfacing bad values as
-// a form error instead of opening), seeds the starting module/path from the
-// field's current value so re-browsing resumes there, and kicks off the first
-// listing.
+// builds the daemon from the selected server (surfacing errors as a form error
+// instead of opening), seeds the starting module/path from the field's current
+// value so re-browsing resumes there, and kicks off the first listing.
 func (f *formModel) openRemotePicker() tea.Cmd {
-	get := func(i int) string { return strings.TrimSpace(f.inputs[i].Value()) }
-	host := get(idxHost)
-	if host == "" {
-		f.err = "enter a host before browsing"
+	// Build the daemon from the selected server
+	if f.serverSel < 0 || f.serverSel >= len(f.serverNames) {
+		f.err = "select a server before browsing"
 		return nil
 	}
-	port := 0
-	if ps := get(idxPort); ps != "" {
-		p, err := strconv.Atoi(ps)
-		if err != nil {
-			f.err = "port must be a number"
-			return nil
-		}
-		port = p
+	srv := f.servers[f.serverNames[f.serverSel]]
+	if strings.TrimSpace(srv.Host) == "" {
+		f.err = "selected server has no host"
+		return nil
 	}
 	f.err = ""
 	d := threewayrsync.Daemon{
-		Host:         host,
-		Port:         port,
-		User:         get(idxUser),
-		PasswordFile: config.ExpandRoot(get(idxPassFile)),
+		Host:         srv.Host,
+		Port:         srv.Port,
+		User:         srv.User,
+		PasswordFile: config.ExpandRoot(srv.PasswordFile),
 	}
+	get := func(i int) string { return strings.TrimSpace(f.inputs[i].Value()) }
 	module, path := splitModulePath(get(idxModulePath))
 	f.browseSeq++
 	f.browsingRemote = true

@@ -22,6 +22,8 @@ func (p Profile) RemoteIsLocalPath() bool {
 // rsyncd_password_file profile keys feed the corresponding transport's auth setting.
 func (p Profile) RemoteEndpoint() (threewayrsync.Endpoint, error) {
 	switch {
+	case p.Server != "":
+		return threewayrsync.Endpoint{}, fmt.Errorf("profile still references server %q — resolve it via Config.ResolveProfile before use", p.Server)
 	case strings.HasPrefix(p.RemoteRoot, "ssh://"):
 		return p.sshEndpoint()
 	case strings.HasPrefix(p.RemoteRoot, "rsync://"):
@@ -169,4 +171,42 @@ func ValidateRemoteRoot(root string) error {
 		return err
 	}
 	return ValidateRoot(root)
+}
+
+// ResolveProfile returns the named profile with its server reference resolved
+// into a self-contained Profile, ready for sanity/status/lifecycle. It reads
+// the stored profile, so an rsync:// value in RemoteRoot with no Server is
+// unambiguously the old embedded shape and is rejected.
+func (c *Config) ResolveProfile(name string) (Profile, error) {
+	p, ok := c.Profiles[name]
+	if !ok {
+		return Profile{}, fmt.Errorf("profile %q not found", name)
+	}
+	if p.Server == "" && strings.HasPrefix(p.RemoteRoot, "rsync://") {
+		return Profile{}, fmt.Errorf("profile %q uses the old embedded rsync remote; rsync connections are now configured as servers — recreate this profile", name)
+	}
+	return c.resolve(p)
+}
+
+// resolve resolves a profile's server reference. A profile with no Server (a
+// local-mount or ssh:// remote) passes through unchanged. Otherwise the named
+// server supplies the connection: RemoteRoot is composed as the daemon URL and
+// RsyncdPasswordFile is copied from the server, and Server is cleared so the
+// result is a plain rsync:// profile the rest of the code already understands.
+func (c *Config) resolve(p Profile) (Profile, error) {
+	if p.Server == "" {
+		return p, nil
+	}
+	srv, ok := c.Servers[p.Server]
+	if !ok {
+		return Profile{}, fmt.Errorf("profile references unknown server %q", p.Server)
+	}
+	port := ""
+	if srv.Port != 0 {
+		port = strconv.Itoa(srv.Port)
+	}
+	p.RemoteRoot = BuildRsyncRemoteRoot(srv.User, srv.Host, port, p.RemoteModule)
+	p.RsyncdPasswordFile = srv.PasswordFile
+	p.Server = ""
+	return p, nil
 }

@@ -12,6 +12,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Server is a reusable rsync daemon connection referenced by name from
+// profiles: the host/port/user/password-file an rsync:// remote needs, split
+// out of Profile so several profiles can share one daemon's connection.
+type Server struct {
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port,omitempty"`          // 0 = default 873
+	User         string `yaml:"user,omitempty"`          // "" = none
+	PasswordFile string `yaml:"password_file,omitempty"` // handed to rsync --password-file
+}
+
 // Profile is a named pair of roots: one on fast local disk, one on the network share.
 // RemoteRoot is a plain absolute path (a mounted share), or an "ssh://[user@]host[:port]/abs/path"
 // or "rsync://[user@]host[:port]/module[/path]" endpoint URL (see RemoteEndpoint).
@@ -24,9 +34,16 @@ type Profile struct {
 	// at the same remote root must not pass each other's ownership check.
 	ID         string `yaml:"id,omitempty"`
 	LocalRoot  string `yaml:"local_root"`
-	RemoteRoot string `yaml:"remote_root"`
+	RemoteRoot string `yaml:"remote_root,omitempty"`
 	// SSHIdentityFile, for an ssh:// remote, is the private key handed to ssh -i.
 	SSHIdentityFile string `yaml:"ssh_identity_file,omitempty"`
+	// Server, when non-empty, names the Config.Servers entry this profile's
+	// rsync daemon remote resolves through (see Config.ResolveProfile). It is
+	// mutually exclusive with a non-empty RemoteRoot; RemoteRoot/RsyncdPasswordFile
+	// are filled by resolution before the profile reaches sanity/status/lifecycle.
+	Server string `yaml:"server,omitempty"`
+	// RemoteModule is the "module[/path]" this profile syncs on its Server.
+	RemoteModule string `yaml:"remote_module,omitempty"`
 	// RsyncdPasswordFile, for an rsync:// remote, is handed to rsync --password-file.
 	RsyncdPasswordFile string `yaml:"rsyncd_password_file,omitempty"`
 	// Subpaths is an intentional hard scope, not a live view of the remote: a folder
@@ -63,6 +80,7 @@ type Config struct {
 	// RsyncPath overrides the rsync binary used for all transfers; empty means "rsync"
 	// from PATH. Useful on macOS, where /usr/bin/rsync is Apple's openrsync.
 	RsyncPath string             `yaml:"rsync_path,omitempty"`
+	Servers   map[string]Server  `yaml:"servers,omitempty"`
 	Profiles  map[string]Profile `yaml:"profiles"`
 }
 
@@ -152,6 +170,19 @@ func ValidateName(name string) error {
 func ValidateIdentity(id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("identity is required")
+	}
+	return nil
+}
+
+// ValidateServer reports whether a server's connection fields are usable: a
+// host is required and a given port must be a valid TCP port. An empty port
+// (0) means the rsync daemon default (873).
+func ValidateServer(s Server) error {
+	if strings.TrimSpace(s.Host) == "" {
+		return errors.New("host is required")
+	}
+	if s.Port < 0 || s.Port > 65535 {
+		return errors.New("port must be between 0 and 65535")
 	}
 	return nil
 }

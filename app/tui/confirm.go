@@ -130,6 +130,9 @@ const (
 	// (abandon + re-checkout) is named in the dialog text and taken from the
 	// profile view, not from here.
 	confirmWipe
+	// confirmDeleteServer guards deleting a server entry, warning when profiles
+	// still reference it.
+	confirmDeleteServer
 )
 
 // confirmButton renders a bracketed [ label ] button: accent+bold when it is the
@@ -156,6 +159,7 @@ type confirmParams struct {
 	allowDeletes   bool           // sync checkboxes
 	localWins      bool
 	wipe           *threewayrsync.WouldWipeError // confirmWipe only
+	serverRefs     []string                      // confirmDeleteServer: profiles referencing the server
 }
 
 // confirmParams gathers the model state the open confirm dialog renders from:
@@ -177,6 +181,7 @@ func (m model) confirmParams() confirmParams {
 		allowDeletes: m.syncAllowDeletes,
 		localWins:    m.syncLocalWins,
 		wipe:         m.wipe,
+		serverRefs:   m.serverRefs,
 	}
 }
 
@@ -206,6 +211,13 @@ func confirmModal(kind confirmKind, name string, p confirmParams, termWidth int)
 		title, question, activate, dismiss = "Confirm cancel", "Stop the running operation?", "Stop", "Keep running"
 	case confirmWipe:
 		title, question = "Sync stopped", wipeQuestion(name, p.wipe)
+	case confirmDeleteServer:
+		title = "Confirm delete"
+		question = "Delete server \"" + name + "\"?"
+		if len(p.serverRefs) > 0 {
+			question += "\nStill used by: " + strings.Join(p.serverRefs, ", ")
+		}
+		activate = "Delete"
 	}
 	sep := helpTextStyle.Render(" · ")
 	var buttons, help string
@@ -336,7 +348,11 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "y", "Y":
 		return m.activateConfirm()
 	case "n", "N", "esc":
-		m.mode = modeMain
+		if m.confirmKind == confirmDeleteServer {
+			m.mode = modeServers
+		} else {
+			m.mode = modeMain
+		}
 		m.wipe = nil
 		return m, nil
 	case "tab":
@@ -373,7 +389,11 @@ func (m model) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.confirmFocus == confirmFocusDelete {
 			return m.activateConfirm()
 		}
-		m.mode = modeMain
+		if m.confirmKind == confirmDeleteServer {
+			m.mode = modeServers
+		} else {
+			m.mode = modeMain
+		}
 		m.wipe = nil
 		return m, nil
 	}
@@ -414,6 +434,8 @@ func (m model) activateConfirm() (tea.Model, tea.Cmd) {
 		return m.syncConfirmed()
 	case confirmCancel:
 		return m.cancelAction()
+	case confirmDeleteServer:
+		return m.deleteConfirmedServer()
 	}
 	return m.deleteConfirmedProfile()
 }
@@ -496,12 +518,19 @@ func (m *model) beginAction() context.Context {
 // state reset so the Activity box shows a fresh in-progress state.
 func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
+	p, err := m.cfg.ResolveProfile(name)
+	if err != nil {
+		m.profile.actionErr = err
+		m.mode = modeMain
+		m.sub = subActions
+		return m, nil
+	}
 	ctx := (&m).beginAction()
 	// checkin has no --force: it only releases a this-machine-owned, fully-synced
 	// profile. The footer force toggle applies to checkout/sync, not here.
 	// Abandon skips the in-sync verification (the "start over" path).
 	opts := lifecycle.Options{Clean: m.checkinClean, Abandon: m.checkinAbandon}
-	return m, checkinCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)
+	return m, checkinCmd(ctx, m.runner, m.id, name, p, m.actionSeq, opts)
 }
 
 // checkoutConfirmed runs lifecycle.Runner.Checkout for m.confirmName once the
@@ -515,9 +544,16 @@ func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 // refuses in the runner, listing the offending paths in Activity.
 func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
+	p, err := m.cfg.ResolveProfile(name)
+	if err != nil {
+		m.profile.actionErr = err
+		m.mode = modeMain
+		m.sub = subActions
+		return m, nil
+	}
 	ctx := (&m).beginAction()
 	opts := lifecycle.Options{Force: m.checkoutSteal, Resume: m.confirmResumable}
-	return m, checkoutCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)
+	return m, checkoutCmd(ctx, m.runner, m.id, name, p, m.actionSeq, opts)
 }
 
 // syncConfirmed runs lifecycle.Runner.Sync for m.confirmName once the user hit
@@ -527,12 +563,19 @@ func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 // checkoutConfirmed.
 func (m model) syncConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
+	p, err := m.cfg.ResolveProfile(name)
+	if err != nil {
+		m.profile.actionErr = err
+		m.mode = modeMain
+		m.sub = subActions
+		return m, nil
+	}
 	ctx := (&m).beginAction()
 	// Snapshot the last Status result (if one ran) into planned totals; the
 	// run's allow-deletes checkbox decides whether deletes are in the plan.
 	m.profile.progress = newSyncProgress(m.profile.result, m.syncAllowDeletes)
 	opts := lifecycle.Options{Force: m.syncLocalWins, AllowDeletes: m.syncAllowDeletes}
-	cmds := []tea.Cmd{syncCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)}
+	cmds := []tea.Cmd{syncCmd(ctx, m.runner, m.id, name, p, m.actionSeq, opts)}
 	// Without planned totals the bar is a bouncing eye, which needs a clock.
 	if m.profile.progress.totals == nil {
 		cmds = append(cmds, cylonTick(m.actionSeq))

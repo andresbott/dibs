@@ -13,7 +13,7 @@ import (
 )
 
 func TestFormViewHasBorder(t *testing.T) {
-	f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"})
+	f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"}, nil)
 	f.setWidth(80)
 	if view := f.View(); !strings.Contains(view, "╭") || !strings.Contains(view, "╯") {
 		t.Fatalf("form view missing rounded border corners:\n%s", view)
@@ -24,7 +24,7 @@ func TestFormViewHasBorder(t *testing.T) {
 // underline (bottom border only), with no field boxes. Complements
 // TestFormViewHasBorder, which covers the modal's own rounded frame.
 func TestFormFieldsUnderlined(t *testing.T) {
-	f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"})
+	f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"}, nil)
 	f.setWidth(80)
 	u := f.underline(0)
 	if h := lipgloss.Height(u); h != 2 {
@@ -40,7 +40,7 @@ func TestFormFieldsUnderlined(t *testing.T) {
 }
 
 func TestFormHasBrowseButtons(t *testing.T) {
-	f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"})
+	f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"}, nil)
 	f.setWidth(80)
 	if n := strings.Count(f.View(), "Browse"); n != 2 {
 		t.Fatalf("want 2 Browse buttons (path fields only), got %d:\n%s", n, f.View())
@@ -185,7 +185,7 @@ func TestFormTabCyclesAllSlots(t *testing.T) {
 }
 
 func TestFormHasSaveCancelButtons(t *testing.T) {
-	f := newForm("photos", config.Profile{})
+	f := newForm("photos", config.Profile{}, nil)
 	f.setWidth(80)
 	if view := f.View(); !strings.Contains(view, "Save") || !strings.Contains(view, "Cancel") {
 		t.Fatalf("form should render Save and Cancel buttons:\n%s", view)
@@ -194,7 +194,7 @@ func TestFormHasSaveCancelButtons(t *testing.T) {
 
 // TestFormHasHints guards the key-hint line re-added to the form footer.
 func TestFormHasHints(t *testing.T) {
-	f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"})
+	f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"}, nil)
 	f.setWidth(80)
 	view := f.View()
 	if !strings.Contains(view, "Move") {
@@ -329,7 +329,7 @@ func TestSaveCancelLeftRight(t *testing.T) {
 
 func TestFieldRowsFit(t *testing.T) {
 	for _, w := range []int{80, 40, 30} {
-		f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"})
+		f := newForm("photos", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"}, nil)
 		f.setWidth(w)
 		for i := range f.inputs {
 			if got, budget := lipgloss.Width(f.fieldRow(i)), f.modalWidth()-4; got > budget {
@@ -391,7 +391,7 @@ func TestEditPreservesProfileID(t *testing.T) {
 	}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m.form.inputs[0].SetValue("renamed")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
@@ -400,7 +400,7 @@ func TestEditPreservesProfileID(t *testing.T) {
 	}
 
 	m.mode = modeForm
-	m.form = newForm("legacy", m.cfg.Profiles["legacy"])
+	m.form = newForm("legacy", m.cfg.Profiles["legacy"], nil)
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
 	if m.cfg.Profiles["legacy"].ID == "" {
@@ -432,7 +432,7 @@ func TestEditRenameReplacesKey(t *testing.T) {
 	}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("old", cfg.Profiles["old"])
+	m.form = newForm("old", cfg.Profiles["old"], nil)
 	m.form.inputs[0].SetValue("new")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
@@ -459,7 +459,7 @@ func TestEditPreservesSubpaths(t *testing.T) {
 	}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m.form.inputs[1].SetValue("/l2") // edit the local root, leaving the name unchanged
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
@@ -481,7 +481,7 @@ func TestEditPreservesSubpaths(t *testing.T) {
 // form — one input per subpath (seeded with its value) with a Remove button —
 // plus an Add-subpath button, under a Subpaths section label.
 func TestFormShowsSubpathRows(t *testing.T) {
-	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r", Subpaths: []string{"a", "b/c"}})
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r", Subpaths: []string{"a", "b/c"}}, nil)
 	f.setWidth(80)
 	view := f.View()
 	if !strings.Contains(view, "Subpaths") {
@@ -527,7 +527,7 @@ func TestFormRemoveSubpathDeletesRow(t *testing.T) {
 	}}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m = tabToKind(t, m, slotRemove) // first subpath's Remove button
 	m = update(t, m, spaceKey)
 	if got := len(m.form.inputs); got != numFixed+1 {
@@ -542,7 +542,7 @@ func TestFormRemoveSubpathDeletesRow(t *testing.T) {
 // under an Ignored-files section label, each with a Remove button, plus an
 // Add-ignore button.
 func TestFormShowsIgnoreRows(t *testing.T) {
-	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r", Ignore: []string{".DS_Store", "*.tmp"}})
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r", Ignore: []string{".DS_Store", "*.tmp"}}, nil)
 	f.setWidth(80)
 	view := f.View()
 	if !strings.Contains(view, "Ignored files") {
@@ -589,7 +589,7 @@ func TestFormRemoveIgnoreDeletesRow(t *testing.T) {
 	}}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m = tabToKind(t, m, slotRemove) // first ignore row's Remove button
 	m = update(t, m, spaceKey)
 	if got := len(m.form.inputs); got != numFixed+1 {
@@ -612,7 +612,7 @@ func TestFormSavePersistsIgnore(t *testing.T) {
 	}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m = tabToKind(t, m, slotAddIgnore)
 	m = update(t, m, spaceKey) // add a second pattern row
 	m = typeRunes(t, m, "*.tmp")
@@ -640,7 +640,7 @@ func TestFormSaveRejectsInvalidIgnore(t *testing.T) {
 	}}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m = tabToKind(t, m, slotAddIgnore)
 	m = update(t, m, spaceKey)
 	m = typeRunes(t, m, "a/b")
@@ -676,7 +676,7 @@ func TestFormSavePersistsEditedSubpaths(t *testing.T) {
 	}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m.form.inputs[numFixed].SetValue("a2") // edit the existing subpath
 	m = tabToKind(t, m, slotAdd)
 	m = update(t, m, spaceKey) // add a second row
@@ -708,7 +708,7 @@ func TestFormSaveDropsBlankSubpaths(t *testing.T) {
 	}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m = tabToKind(t, m, slotAdd)
 	m = update(t, m, spaceKey) // add a row, leave it blank
 	m = tabToKind(t, m, slotSave)
@@ -735,7 +735,7 @@ func TestFormSaveRejectsInvalidSubpath(t *testing.T) {
 	}}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], nil)
 	m = tabToKind(t, m, slotAdd)
 	m = update(t, m, spaceKey)
 	m = typeRunes(t, m, "../escape")
@@ -851,7 +851,7 @@ func TestEditRenameSaveFailureRollsBackProfiles(t *testing.T) {
 	}}
 	m := newModel(p, cfg)
 	m.mode = modeForm
-	m.form = newForm("old", cfg.Profiles["old"])
+	m.form = newForm("old", cfg.Profiles["old"], nil)
 	m.form.inputs[0].SetValue("new")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey) // submit; save should fail
@@ -872,25 +872,25 @@ func TestEditRenameSaveFailureRollsBackProfiles(t *testing.T) {
 
 // --- remote-type selector & per-kind fields ---
 
-// TestNewFormDecomposesRsyncURL: editing an rsync:// profile opens the form on
-// the rsync kind with the URL decomposed into the connection fields and the
-// password file exposed.
+// TestNewFormDecomposesRsyncURL: editing a legacy rsync:// profile (pre-server
+// refactor) opens the form on the rsync kind with the module path extracted;
+// the URL's connection info is ignored (no longer decomposed into separate fields).
 func TestNewFormDecomposesRsyncURL(t *testing.T) {
 	f := newForm("work", config.Profile{
 		LocalRoot:          "/l",
 		RemoteRoot:         "rsync://alice@nas:874/mod/inner",
 		RsyncdPasswordFile: "/pw",
-	})
+	}, nil)
 	if f.kind != remoteRsync {
 		t.Fatalf("kind = %d, want remoteRsync", f.kind)
 	}
-	for idx, want := range map[int]string{
-		idxHost: "nas", idxPort: "874", idxUser: "alice",
-		idxModulePath: "mod/inner", idxPassFile: "/pw",
-	} {
-		if got := f.inputs[idx].Value(); got != want {
-			t.Errorf("input %d = %q, want %q", idx, got, want)
-		}
+	// The module path should be seeded from the URL's module part
+	if got := f.inputs[idxModulePath].Value(); got != "mod/inner" {
+		t.Errorf("module path = %q, want mod/inner", got)
+	}
+	// No server should be selected for a legacy URL-based profile
+	if f.serverSel >= 0 {
+		t.Errorf("serverSel = %d, want -1 (no server for legacy URL)", f.serverSel)
 	}
 }
 
@@ -901,7 +901,7 @@ func TestNewFormDecomposesSSHURL(t *testing.T) {
 		LocalRoot:       "/l",
 		RemoteRoot:      "ssh://bob@nas/srv/data",
 		SSHIdentityFile: "~/.ssh/id",
-	})
+	}, nil)
 	if f.kind != remoteSSH {
 		t.Fatalf("kind = %d, want remoteSSH", f.kind)
 	}
@@ -915,7 +915,7 @@ func TestNewFormDecomposesSSHURL(t *testing.T) {
 
 // TestNewFormPlainPathIsLocalKind: a plain-path profile opens on the Local kind.
 func TestNewFormPlainPathIsLocalKind(t *testing.T) {
-	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/mnt/nas"})
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/mnt/nas"}, nil)
 	if f.kind != remoteLocal {
 		t.Fatalf("kind = %d, want remoteLocal", f.kind)
 	}
@@ -929,7 +929,7 @@ func TestNewFormPlainPathIsLocalKind(t *testing.T) {
 // module-path field, and Save re-validates.
 func TestNewFormMalformedRsyncURLKeepsValue(t *testing.T) {
 	raw := "rsync://nas:bad-port/mod"
-	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: raw})
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: raw}, nil)
 	if f.kind != remoteRsync {
 		t.Fatalf("kind = %d, want remoteRsync", f.kind)
 	}
@@ -962,8 +962,8 @@ func TestTypeSelectorCyclesKinds(t *testing.T) {
 	if m.form.kind != remoteRsync {
 		t.Fatalf("right: kind = %d, want remoteRsync", m.form.kind)
 	}
-	if got := len(m.form.remoteFields()); got != 5 {
-		t.Fatalf("rsync kind should expose 5 fields, got %d", got)
+	if got := len(m.form.remoteFields()); got != 1 {
+		t.Fatalf("rsync kind should expose 1 field (module path), got %d", got)
 	}
 	m = update(t, m, spaceKey)
 	if m.form.kind != remoteSSH {
@@ -986,50 +986,27 @@ func TestTypeSelectorCyclesKinds(t *testing.T) {
 // switch away and back — the inputs always exist, only their exposure changes.
 func TestTypeSwitchPreservesTypedValues(t *testing.T) {
 	m := tabToTypeSel(t, openAddForm(t))
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // → Host input
-	m = typeRunes(t, m, "nas")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp}) // back to the selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // → rsync
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})               // → server selector (or module if no servers)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})               // → module path input
+	m = typeRunes(t, m, "docs")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})                 // back up
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})                 // back to selector
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // ssh → Local
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync again
-	if got := m.form.inputs[idxHost].Value(); got != "nas" {
-		t.Fatalf("host input = %q, want nas preserved across kind switches", got)
-	}
-}
-
-// TestValuesComposesRsyncURL: values() under the rsync kind composes the
-// rsync:// URL from the connection fields and carries the password file, and
-// leaves the other kinds' auth keys empty.
-func TestValuesComposesRsyncURL(t *testing.T) {
-	f := newForm("", config.Profile{})
-	f.kind = remoteRsync
-	f.inputs[idxHost].SetValue("nas")
-	f.inputs[idxPort].SetValue("874")
-	f.inputs[idxUser].SetValue("alice")
-	f.inputs[idxModulePath].SetValue("mod/inner")
-	f.inputs[idxPassFile].SetValue("/pw")
-	f.inputs[idxSSHIdentity].SetValue("stale") // typed under another kind: must not leak
-	_, p := f.values()
-	if p.RemoteRoot != "rsync://alice@nas:874/mod/inner" {
-		t.Errorf("RemoteRoot = %q", p.RemoteRoot)
-	}
-	if p.RsyncdPasswordFile != "/pw" {
-		t.Errorf("RsyncdPasswordFile = %q", p.RsyncdPasswordFile)
-	}
-	if p.SSHIdentityFile != "" {
-		t.Errorf("SSHIdentityFile = %q, want empty (ssh not selected)", p.SSHIdentityFile)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // ssh → Local
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // → rsync again
+	if got := m.form.inputs[idxModulePath].Value(); got != "docs" {
+		t.Fatalf("module path input = %q, want docs preserved across kind switches", got)
 	}
 }
 
 // TestValuesComposesSSH: values() under the ssh kind reads the URL and identity
-// file, leaving the rsync password file empty.
+// file.
 func TestValuesComposesSSH(t *testing.T) {
-	f := newForm("", config.Profile{})
+	f := newForm("", config.Profile{}, nil)
 	f.kind = remoteSSH
 	f.inputs[idxSSHURL].SetValue("ssh://nas/srv/data")
 	f.inputs[idxSSHIdentity].SetValue("~/.ssh/id")
-	f.inputs[idxPassFile].SetValue("stale")
 	_, p := f.values()
 	if p.RemoteRoot != "ssh://nas/srv/data" {
 		t.Errorf("RemoteRoot = %q", p.RemoteRoot)
@@ -1037,28 +1014,29 @@ func TestValuesComposesSSH(t *testing.T) {
 	if p.SSHIdentityFile != "~/.ssh/id" {
 		t.Errorf("SSHIdentityFile = %q", p.SSHIdentityFile)
 	}
-	if p.RsyncdPasswordFile != "" {
-		t.Errorf("RsyncdPasswordFile = %q, want empty (rsync not selected)", p.RsyncdPasswordFile)
+	if p.Server != "" {
+		t.Errorf("Server = %q, want empty (ssh not server-backed)", p.Server)
 	}
 }
 
-// TestSaveRsyncProfilePersists: filling the rsync fields through the UI and
-// saving persists the composed rsync:// remote root and the password file.
+// TestSaveRsyncProfilePersists: selecting a server and filling the module path
+// through the UI and saving persists Server+RemoteModule (not a RemoteRoot URL).
 func TestSaveRsyncProfilePersists(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.yaml")
-	m := newModel(p, &config.Config{Profiles: map[string]config.Profile{}})
+	cfg := &config.Config{
+		Profiles: map[string]config.Profile{},
+		Servers:  map[string]config.Server{"nas": {Host: "nas.local"}},
+	}
+	m := newModel(p, cfg)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = typeRunes(t, m, "photos")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // remote-type selector
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Host
-	m = typeRunes(t, m, "nas")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Port (left default)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // User
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Password file
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Module/path
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // server selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → nas
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Module/path
 	m = typeRunes(t, m, "mod/photos")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
@@ -1070,46 +1048,56 @@ func TestSaveRsyncProfilePersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := saved.Profiles["photos"].RemoteRoot; got != "rsync://nas/mod/photos" {
-		t.Fatalf("saved remote root = %q, want rsync://nas/mod/photos", got)
+	got := saved.Profiles["photos"]
+	if got.Server != "nas" || got.RemoteModule != "mod/photos" {
+		t.Fatalf("saved Server=%q RemoteModule=%q, want nas, mod/photos", got.Server, got.RemoteModule)
+	}
+	if got.RemoteRoot != "" {
+		t.Fatalf("saved RemoteRoot=%q, want empty (server-backed)", got.RemoteRoot)
 	}
 }
 
-// TestSaveRsyncMissingHostBlocked: saving the rsync kind without a host keeps
-// the form open with a validation error (from ValidateRemoteRoot on the
-// composed URL).
-func TestSaveRsyncMissingHostBlocked(t *testing.T) {
+// TestSaveRsyncMissingServerBlocked: saving the rsync kind without selecting a
+// server keeps the form open with a validation error.
+func TestSaveRsyncMissingServerBlocked(t *testing.T) {
 	pth := filepath.Join(t.TempDir(), "config.yaml")
-	m := newModel(pth, &config.Config{Profiles: map[string]config.Profile{}})
+	cfg := &config.Config{
+		Profiles: map[string]config.Profile{},
+		Servers:  map[string]config.Server{"nas": {Host: "nas.local"}},
+	}
+	m := newModel(pth, cfg)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = typeRunes(t, m, "photos")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	m = typeRunes(t, m, "/home/me/pics")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync (host left empty)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync (server not selected)
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
 	if m.mode != modeForm {
-		t.Fatal("missing host should keep the form open")
+		t.Fatal("missing server should keep the form open")
 	}
 	if m.form.err == "" {
 		t.Fatal("expected a validation error message")
 	}
 }
 
-// TestEditRsyncProfileRoundTrips: opening an rsync profile and saving untouched
-// round-trips the exact same remote root — decompose and compose are inverses.
+// TestEditRsyncProfileRoundTrips: opening a server-backed rsync profile and
+// saving untouched round-trips the exact same Server+RemoteModule.
 func TestEditRsyncProfileRoundTrips(t *testing.T) {
 	pth := filepath.Join(t.TempDir(), "config.yaml")
-	cfg := &config.Config{Profiles: map[string]config.Profile{
-		"work": {LocalRoot: "/l", RemoteRoot: "rsync://alice@nas:874/mod/inner", RsyncdPasswordFile: "/pw"},
-	}}
+	cfg := &config.Config{
+		Profiles: map[string]config.Profile{
+			"work": {LocalRoot: "/l", Server: "nas", RemoteModule: "mod/inner"},
+		},
+		Servers: map[string]config.Server{"nas": {Host: "nas.local"}},
+	}
 	if err := config.Save(pth, cfg); err != nil {
 		t.Fatal(err)
 	}
 	m := newModel(pth, cfg)
 	m.mode = modeForm
-	m.form = newForm("work", cfg.Profiles["work"])
+	m.form = newForm("work", cfg.Profiles["work"], cfg.Servers)
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
 	if m.mode != modeMain {
@@ -1120,18 +1108,19 @@ func TestEditRsyncProfileRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := saved.Profiles["work"]
-	if got.RemoteRoot != "rsync://alice@nas:874/mod/inner" {
-		t.Fatalf("remote root = %q, want it unchanged", got.RemoteRoot)
+	if got.Server != "nas" || got.RemoteModule != "mod/inner" {
+		t.Fatalf("Server=%q RemoteModule=%q, want nas, mod/inner", got.Server, got.RemoteModule)
 	}
-	if got.RsyncdPasswordFile != "/pw" {
-		t.Fatalf("password file = %q, want /pw", got.RsyncdPasswordFile)
+	if got.RemoteRoot != "" {
+		t.Fatalf("RemoteRoot=%q, want empty (server-backed)", got.RemoteRoot)
 	}
 }
 
 // TestFormViewShowsTypeSelector: the form renders the radio row with the three
 // kind options and the selected one marked.
 func TestFormViewShowsTypeSelector(t *testing.T) {
-	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "rsync://nas/mod"})
+	servers := map[string]config.Server{"nas": {Host: "nas.local"}}
+	f := newForm("work", config.Profile{LocalRoot: "/l", Server: "nas", RemoteModule: "mod"}, servers)
 	f.setWidth(80)
 	view := f.View()
 	for _, want := range []string{"Remote type", "Local", "rsync", "ssh", "(•)"} {
@@ -1139,9 +1128,8 @@ func TestFormViewShowsTypeSelector(t *testing.T) {
 			t.Fatalf("form view missing %q:\n%s", want, view)
 		}
 	}
-	// The rsync kind's connection fields are visible; the Local remote-root
-	// label ("Remote root" exactly) is not.
-	for _, want := range []string{"Host", "Module / path", "Password file"} {
+	// The rsync kind's server selector and module path field are visible.
+	for _, want := range []string{"Server", "Module / path"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("rsync kind should show %q:\n%s", want, view)
 		}
@@ -1152,7 +1140,7 @@ func TestFormViewShowsTypeSelector(t *testing.T) {
 // subpaths, ignored files — each open with a titled dotted divider
 // ("┄┄ Title ┄┄┄…"), distinct from the fields' solid underlines.
 func TestFormViewGroupDividers(t *testing.T) {
-	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"})
+	f := newForm("work", config.Profile{LocalRoot: "/l", RemoteRoot: "/r"}, nil)
 	f.setWidth(80)
 	view := f.View()
 	for _, title := range []string{"Root dirs", "Subpaths", "Ignored files"} {
@@ -1160,4 +1148,43 @@ func TestFormViewGroupDividers(t *testing.T) {
 			t.Fatalf("want the %q section header exactly once, got %d:\n%s", title, n, view)
 		}
 	}
+}
+
+// TestFormRsyncValuesUseServerRef: rsync kind sets Server + RemoteModule, not RemoteRoot
+func TestFormRsyncValuesUseServerRef(t *testing.T) {
+	servers := map[string]config.Server{"nas": {Host: "nas.local"}, "backup": {Host: "b"}}
+	f := newForm("", config.Profile{}, servers)
+	f.kind = remoteRsync
+	f.selectServer("nas")
+	f.inputs[idxModulePath].SetValue("share/docs")
+	name, p := f.values()
+	_ = name
+	if p.Server != "nas" || p.RemoteModule != "share/docs" {
+		t.Fatalf("rsync values: Server=%q RemoteModule=%q", p.Server, p.RemoteModule)
+	}
+	if p.RemoteRoot != "" {
+		t.Fatalf("rsync profile should not set RemoteRoot on disk, got %q", p.RemoteRoot)
+	}
+}
+
+// TestFormSeedsRsyncFromServerRef: editing a server-backed profile selects the right server
+func TestFormSeedsRsyncFromServerRef(t *testing.T) {
+	servers := map[string]config.Server{"nas": {Host: "nas.local"}}
+	f := newForm("edit", config.Profile{Server: "nas", RemoteModule: "share/docs"}, servers)
+	if f.kind != remoteRsync {
+		t.Fatalf("kind = %v, want remoteRsync", f.kind)
+	}
+	if f.serverSel < 0 || f.serverSel >= len(f.serverNames) || f.serverNames[f.serverSel] != "nas" {
+		t.Fatalf("selected server = %q (serverSel=%d)", safeServerName(f.serverNames, f.serverSel), f.serverSel)
+	}
+	if f.inputs[idxModulePath].Value() != "share/docs" {
+		t.Fatalf("module = %q", f.inputs[idxModulePath].Value())
+	}
+}
+
+func safeServerName(names []string, idx int) string {
+	if idx < 0 || idx >= len(names) {
+		return "(none)"
+	}
+	return names[idx]
 }

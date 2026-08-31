@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"strconv"
+	"sort"
 	"strings"
 
 	"github.com/andresbott/dibs/internal/config"
@@ -20,7 +20,8 @@ const (
 	slotAddIgnore
 	slotSave
 	slotCancel
-	slotTypeSel // the remote-type radio row (Local / rsync / ssh)
+	slotTypeSel   // the remote-type radio row (Local / rsync / ssh)
+	slotServerSel // the server selector row for rsync kind
 )
 
 // remoteKind is the remote-location type selected in the form: a plain local
@@ -47,10 +48,6 @@ const (
 	idxRemotePath        // kind Local: remote root path (a mounted share)
 	idxSSHURL            // kind ssh: ssh://[user@]host[:port]/abs/path
 	idxSSHIdentity       // kind ssh: identity file for ssh -i
-	idxHost              // kind rsync: daemon host
-	idxPort              // kind rsync: daemon port ("" = default 873)
-	idxUser              // kind rsync: daemon user ("" = none)
-	idxPassFile          // kind rsync: file handed to --password-file
 	idxModulePath        // kind rsync: "module[/path]", typed or browsed
 	numFixed
 )
@@ -67,11 +64,12 @@ type focusSlot struct {
 
 // slots is the Tab order (and the grid), built per call because the subpath and
 // ignore sections grow and shrink, and the remote fields swap with the selected
-// remote type: Name, Local root, the remote-type selector row, the selected
-// kind's remote fields, one row per subpath (input + Remove), the Add-subpath
-// button, one row per ignore pattern (input + Remove), the Add-ignore button,
-// and the Save/Cancel action row. Every row has a column-0 cell, so Down/Up can
-// always fall back to column 0 when a row lacks column 1.
+// remote type: Name, Local root, the remote-type selector row, (for rsync: the
+// server selector row), the selected kind's remote fields, one row per subpath
+// (input + Remove), the Add-subpath button, one row per ignore pattern (input +
+// Remove), the Add-ignore button, and the Save/Cancel action row. Every row has
+// a column-0 cell, so Down/Up can always fall back to column 0 when a row lacks
+// column 1.
 func (f formModel) slots() []focusSlot {
 	s := []focusSlot{
 		{slotInput, idxName, 0, 0},   // Name
@@ -80,6 +78,11 @@ func (f formModel) slots() []focusSlot {
 		{slotTypeSel, -1, 2, 0},      // remote-type radio row
 	}
 	row := 3
+	// For rsync kind, add the server selector row before the remote fields.
+	if f.kind == remoteRsync {
+		s = append(s, focusSlot{slotServerSel, -1, row, 0})
+		row++
+	}
 	for _, i := range f.remoteFields() {
 		s = append(s, focusSlot{slotInput, i, row, 0})
 		if i == idxRemotePath || i == idxModulePath {
@@ -104,11 +107,12 @@ func (f formModel) slots() []focusSlot {
 }
 
 // remoteFields returns the fixed-input indexes the selected remote kind
-// exposes, in display order.
+// exposes, in display order. For rsync, only the module path input is returned;
+// the server selector is a separate slot (slotServerSel), not an input.
 func (f formModel) remoteFields() []int {
 	switch f.kind {
 	case remoteRsync:
-		return []int{idxHost, idxPort, idxUser, idxPassFile, idxModulePath}
+		return []int{idxModulePath}
 	case remoteSSH:
 		return []int{idxSSHURL, idxSSHIdentity}
 	default:
@@ -183,16 +187,19 @@ func (f formModel) slotAt(row, col int) int {
 }
 
 type formModel struct {
-	inputs     []textinput.Model
-	numSubs    int    // count of subpath inputs; see the numFixed layout comment
-	focus      int
-	origName   string // "" for add; the existing name for edit
-	err        string
-	width      int        // terminal width last passed to setWidth
-	termHeight int        // terminal height, for sizing the picker
-	picker     dirPicker  // directory picker for the focused path field
-	browsing   bool       // true while the directory picker is open
-	kind       remoteKind // selected remote-location type (Local / rsync / ssh)
+	inputs      []textinput.Model
+	numSubs     int    // count of subpath inputs; see the numFixed layout comment
+	focus       int
+	origName    string // "" for add; the existing name for edit
+	err         string
+	width       int        // terminal width last passed to setWidth
+	termHeight  int        // terminal height, for sizing the picker
+	picker      dirPicker  // directory picker for the focused path field
+	browsing    bool       // true while the directory picker is open
+	kind        remoteKind // selected remote-location type (Local / rsync / ssh)
+	servers     map[string]config.Server
+	serverNames []string // sorted keys of servers
+	serverSel   int      // index into serverNames, -1 when none selected
 
 	// Remote (rsync daemon) browsing state — see remotepicker.go.
 	rsyncBin       string       // rsync binary override for the browse listings
@@ -216,7 +223,7 @@ func newInput(value string) textinput.Model {
 	return in
 }
 
-func newForm(origName string, p config.Profile) formModel {
+func newForm(origName string, p config.Profile, servers map[string]config.Server) formModel {
 	name := newInput(origName)
 	name.CharLimit = 64
 
@@ -227,52 +234,82 @@ func newForm(origName string, p config.Profile) formModel {
 		inputs[i] = newInput("")
 	}
 	inputs[idxSSHIdentity].SetValue(p.SSHIdentityFile)
-	inputs[idxPassFile].SetValue(p.RsyncdPasswordFile)
-
-	kind := seedRemoteFields(inputs, p.RemoteRoot)
-
-	for _, sub := range p.Subpaths {
-		inputs = append(inputs, newInput(sub))
-	}
-	for _, pat := range p.Ignore {
-		inputs = append(inputs, newInput(pat))
-	}
 
 	f := formModel{
 		inputs:   inputs,
 		numSubs:  len(p.Subpaths),
 		origName: origName,
-		kind:     kind,
+		serverSel: -1,
 	}
+	f.setServers(servers)
+
+	// Seed remote fields: if the profile has a Server set, it's a server-backed
+	// rsync profile; otherwise use the RemoteRoot decomposition.
+	kind := f.seedRemoteFields(p)
+	f.kind = kind
+
+	for _, sub := range p.Subpaths {
+		f.inputs = append(f.inputs, newInput(sub))
+	}
+	for _, pat := range p.Ignore {
+		f.inputs = append(f.inputs, newInput(pat))
+	}
+
 	f.inputs[0].Focus()
 	return f
 }
 
-// seedRemoteFields decomposes an existing remote root into the per-kind inputs
-// and returns the kind it selects. A malformed ssh:// or rsync:// value keeps
-// its kind (by prefix) with the raw URL seeded into that kind's primary field,
-// so nothing is silently discarded — Save re-validates either way.
-func seedRemoteFields(inputs []textinput.Model, remoteRoot string) remoteKind {
-	parts, err := config.SplitRemoteRoot(remoteRoot)
-	port := ""
-	if parts.Port != 0 {
-		port = strconv.Itoa(parts.Port)
+// setServers stores the servers map and builds the sorted serverNames list.
+func (f *formModel) setServers(servers map[string]config.Server) {
+	f.servers = servers
+	f.serverNames = nil
+	for name := range servers {
+		f.serverNames = append(f.serverNames, name)
 	}
+	sort.Strings(f.serverNames)
+}
+
+// selectServer sets serverSel to the index of the named server, or -1 if not found.
+func (f *formModel) selectServer(name string) {
+	f.serverSel = -1
+	for i, n := range f.serverNames {
+		if n == name {
+			f.serverSel = i
+			return
+		}
+	}
+}
+
+// seedRemoteFields decomposes an existing profile into the per-kind inputs and
+// returns the kind it selects. For a server-backed rsync profile (p.Server non-empty),
+// it selects the server and seeds the module path. For a URL-based profile, it
+// decomposes the RemoteRoot. A malformed ssh:// or rsync:// value keeps its kind
+// (by prefix) with the raw URL seeded into that kind's primary field, so nothing
+// is silently discarded — Save re-validates either way.
+func (f *formModel) seedRemoteFields(p config.Profile) remoteKind {
+	// Server-backed rsync profile
+	if p.Server != "" {
+		f.selectServer(p.Server)
+		f.inputs[idxModulePath].SetValue(p.RemoteModule)
+		return remoteRsync
+	}
+
+	// URL-based profile: decompose RemoteRoot
+	parts, err := config.SplitRemoteRoot(p.RemoteRoot)
 	switch {
 	case parts.Kind == "rsync" && err == nil:
-		inputs[idxHost].SetValue(parts.Host)
-		inputs[idxPort].SetValue(port)
-		inputs[idxUser].SetValue(parts.User)
-		inputs[idxModulePath].SetValue(parts.ModulePath)
+		// Legacy rsync:// URL (before server refactor)
+		// Not expected in new configs, but handle for migration
+		f.inputs[idxModulePath].SetValue(parts.ModulePath)
 		return remoteRsync
 	case parts.Kind == "rsync":
-		inputs[idxModulePath].SetValue(remoteRoot)
+		f.inputs[idxModulePath].SetValue(p.RemoteRoot)
 		return remoteRsync
 	case parts.Kind == "ssh":
-		inputs[idxSSHURL].SetValue(remoteRoot)
+		f.inputs[idxSSHURL].SetValue(p.RemoteRoot)
 		return remoteSSH
 	default:
-		inputs[idxRemotePath].SetValue(remoteRoot)
+		f.inputs[idxRemotePath].SetValue(p.RemoteRoot)
 		return remoteLocal
 	}
 }
@@ -427,11 +464,16 @@ func (f *formModel) navKey(key string) (cmd tea.Cmd, ok bool) {
 	case "up":
 		return f.focusPrevField(), true
 	case "right":
-		// On the type selector → next kind; on Save → Cancel; on a path/subpath
-		// input with the cursor at the end → its Browse/Remove button; otherwise
-		// not a nav key (let the input move its cursor).
+		// On the type selector → next kind; on the server selector → next server;
+		// on Save → Cancel; on a path/subpath input with the cursor at the end →
+		// its Browse/Remove button; otherwise not a nav key (let the input move
+		// its cursor).
 		if f.focusKind() == slotTypeSel {
 			f.cycleKind(1)
+			return nil, true
+		}
+		if f.focusKind() == slotServerSel {
+			f.cycleServer(1)
 			return nil, true
 		}
 		if f.focusKind() == slotSave {
@@ -441,11 +483,15 @@ func (f *formModel) navKey(key string) (cmd tea.Cmd, ok bool) {
 			return f.setFocus(f.buttonSlot(f.focusField())), true
 		}
 	case "left":
-		// On the type selector → previous kind; on Cancel → Save; on a
-		// Browse/Remove button → its input; otherwise not a nav key (let the
-		// input move its cursor).
+		// On the type selector → previous kind; on the server selector → previous
+		// server; on Cancel → Save; on a Browse/Remove button → its input;
+		// otherwise not a nav key (let the input move its cursor).
 		if f.focusKind() == slotTypeSel {
 			f.cycleKind(-1)
+			return nil, true
+		}
+		if f.focusKind() == slotServerSel {
+			f.cycleServer(-1)
 			return nil, true
 		}
 		if f.focusKind() == slotCancel {
@@ -470,7 +516,9 @@ func (f formModel) updateInputs(msg tea.Msg) (formModel, tea.Cmd) {
 
 // values composes the profile from the selected kind's fields: only that
 // kind's remote root (and its auth key) is read, so stale values typed under
-// another kind never leak into the saved profile.
+// another kind never leak into the saved profile. For rsync, the server selector
+// and module path set p.Server and p.RemoteModule; RemoteRoot is left empty and
+// will be resolved by the config layer before syncing.
 func (f formModel) values() (string, config.Profile) {
 	p := config.Profile{
 		LocalRoot: strings.TrimSpace(f.inputs[idxLocal].Value()),
@@ -480,8 +528,10 @@ func (f formModel) values() (string, config.Profile) {
 	get := func(i int) string { return strings.TrimSpace(f.inputs[i].Value()) }
 	switch f.kind {
 	case remoteRsync:
-		p.RemoteRoot = config.BuildRsyncRemoteRoot(get(idxUser), get(idxHost), get(idxPort), get(idxModulePath))
-		p.RsyncdPasswordFile = get(idxPassFile)
+		if f.serverSel >= 0 && f.serverSel < len(f.serverNames) {
+			p.Server = f.serverNames[f.serverSel]
+		}
+		p.RemoteModule = get(idxModulePath)
 	case remoteSSH:
 		p.RemoteRoot = get(idxSSHURL)
 		p.SSHIdentityFile = get(idxSSHIdentity)
@@ -521,7 +571,8 @@ func (f formModel) View() string {
 	content.WriteString(f.sectionHeader("Root dirs", false))
 	writeField(idxLocal)
 
-	// Remote-type selector row, then the selected kind's fields.
+	// Remote-type selector row, then (for rsync) the server selector row, then
+	// the selected kind's fields.
 	content.WriteString("\n")
 	label := labelStyle
 	if f.focusKind() == slotTypeSel {
@@ -530,6 +581,19 @@ func (f formModel) View() string {
 	content.WriteString(label.Render("Remote type"))
 	content.WriteString("\n")
 	content.WriteString(f.typeSelRow())
+
+	// For rsync kind, show the server selector
+	if f.kind == remoteRsync {
+		content.WriteString("\n")
+		serverLabel := labelStyle
+		if f.focusKind() == slotServerSel {
+			serverLabel = focusLabelStyle
+		}
+		content.WriteString(serverLabel.Render("Server"))
+		content.WriteString("\n")
+		content.WriteString(f.serverSelRow())
+	}
+
 	for _, i := range f.remoteFields() {
 		content.WriteString("\n")
 		writeField(i)
@@ -601,10 +665,6 @@ var fieldLabels = [numFixed]string{
 	idxRemotePath:  "Remote root",
 	idxSSHURL:      "Remote root (ssh://[user@]host[:port]/path)",
 	idxSSHIdentity: "SSH identity file (optional)",
-	idxHost:        "Host",
-	idxPort:        "Port (optional)",
-	idxUser:        "User (optional)",
-	idxPassFile:    "Password file (optional)",
 	idxModulePath:  "Module / path",
 }
 
@@ -635,6 +695,25 @@ func (f *formModel) cycleKind(dir int) {
 	}
 }
 
+// cycleServer steps the server selector by dir (+1 / -1), wrapping.
+func (f *formModel) cycleServer(dir int) {
+	if len(f.serverNames) == 0 {
+		f.serverSel = -1
+		return
+	}
+	if f.serverSel < 0 {
+		// No selection yet: start at first (forward) or last (backward)
+		if dir > 0 {
+			f.serverSel = 0
+		} else {
+			f.serverSel = len(f.serverNames) - 1
+		}
+		return
+	}
+	n := len(f.serverNames)
+	f.serverSel = (f.serverSel + dir + n) % n
+}
+
 // typeSelRow renders the remote-type radio row: one (•)/( ) option per kind,
 // the selected one marked, the whole row accented while the selector is focused.
 func (f formModel) typeSelRow() string {
@@ -656,6 +735,28 @@ func (f formModel) typeSelRow() string {
 		opts = append(opts, st.Render(opt))
 	}
 	return strings.Join(opts, "   ")
+}
+
+// serverSelRow renders the server selector row: cycles through available servers
+// or shows a hint when none exist. Accented while focused.
+func (f formModel) serverSelRow() string {
+	focused := f.focusKind() == slotServerSel
+	if len(f.serverNames) == 0 {
+		msg := "(no servers — press v on the main view to add one)"
+		if focused {
+			return lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render(msg)
+		}
+		return helpTextStyle.Render(msg)
+	}
+	sel := "(none)"
+	if f.serverSel >= 0 && f.serverSel < len(f.serverNames) {
+		sel = f.serverNames[f.serverSel]
+	}
+	st := lipgloss.NewStyle().Foreground(colDim)
+	if focused {
+		st = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	}
+	return st.Render("< " + sel + " >")
 }
 
 // fieldWidth is the display width of input i's underline. Fields with an inline

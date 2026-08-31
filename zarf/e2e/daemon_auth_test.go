@@ -86,6 +86,7 @@ func TestDaemonAuthModule(t *testing.T) {
 				"e2e": {LocalRoot: local, RemoteRoot: root, RsyncdPasswordFile: passwordFile},
 			},
 		}
+		serverizeConfig(cfg)
 		if err := config.Save(path, cfg); err != nil {
 			t.Fatalf("write config: %v", err)
 		}

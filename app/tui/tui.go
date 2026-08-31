@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -28,6 +29,8 @@ const (
 	modeForm
 	modeConfirm
 	modeSettings
+	modeServers
+	modeServerForm
 )
 
 // mainSub selects what modeMain's top box shows. Enter (subList) reveals the
@@ -63,6 +66,8 @@ type model struct {
 	pane         actPane // which panel is focused while sub == subActions
 	form         formModel
 	settings     settingsModel
+	servers      listModel
+	serverForm   serverFormModel
 	profile      profileModel
 	confirmName  string
 	confirmKind  confirmKind
@@ -96,6 +101,9 @@ type model struct {
 	// checkinAbandon is the check-in dialog's "abandon" checkbox: release the
 	// lock without the in-sync verification (the TUI equivalent of --abandon).
 	checkinAbandon bool
+	// serverRefs carries the list of profiles referencing a server when the
+	// confirmDeleteServer dialog opens.
+	serverRefs []string
 	// wipe carries the engine wipe-valve stop the confirmWipe dialog explains:
 	// the side that would be emptied and how many files. Set when a sync result
 	// carries a *threewayrsync.WouldWipeError; cleared when the dialog closes.
@@ -190,12 +198,13 @@ func (m *model) resize(ws tea.WindowSizeMsg) {
 		m.form.remote.ensureVisible()
 	}
 	m.settings.setWidth(ws.Width)
+	m.serverForm.setWidth(ws.Width)
 }
 
 func (m model) Init() tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(m.cfg.Profiles)+2)
-	for name, p := range m.cfg.Profiles {
-		cmds = append(cmds, sanityCmd(name, p, m.cfg.RsyncPath))
+	for name := range m.cfg.Profiles {
+		cmds = append(cmds, sanityCmd(m.cfg, name, m.cfg.RsyncPath))
 	}
 	// Verify the rsync binary up front so a macOS openrsync (or a stale override)
 	// surfaces as a settings dialog at startup, not a cryptic mid-sync failure.
@@ -273,6 +282,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirm(msg)
 	case modeSettings:
 		return m.updateSettings(msg)
+	case modeServers:
+		return m.updateServers(msg)
+	case modeServerForm:
+		return m.updateServerForm(msg)
 	default:
 		return m.updateMain(msg)
 	}
@@ -290,7 +303,7 @@ func (m model) handleActionResult(res actionResultMsg) (tea.Model, tea.Cmd) {
 	}
 	p := m.cfg.Profiles[res.name]
 	// Refresh the sanity mark since the marker changed.
-	cmds := []tea.Cmd{sanityCmd(res.name, p, m.cfg.RsyncPath)}
+	cmds := []tea.Cmd{sanityCmd(m.cfg, res.name, m.cfg.RsyncPath)}
 	// A successful mutating action changed the local tree, so re-scan it to
 	// refresh the Contents summary in the Details box. Only while still on the
 	// profile view — a released check-in has returned to the list — and never
@@ -322,6 +335,8 @@ func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "i":
 		return m.openSettings()
+	case "v":
+		return m.openServers()
 	case "a":
 		// A fresh profile starts with the default ignore list (file-manager
 		// metadata droppings); the user can remove the rows in the form.
@@ -350,7 +365,7 @@ func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) openForm(origName string, p config.Profile) (tea.Model, tea.Cmd) {
-	m.form = newForm(origName, p)
+	m.form = newForm(origName, p, m.cfg.Servers)
 	m.form.setWidth(m.width)
 	m.form.termHeight = m.height
 	m.form.rsyncBin = m.cfg.RsyncPath
@@ -456,7 +471,7 @@ func (m model) openProfile(name string) (tea.Model, tea.Cmd) {
 	m.pane = paneActions // always open focused on the action list
 	// Refresh the sanity mark so action-row gating reflects the current on-disk
 	// checkout state rather than whatever was cached at startup.
-	return m, sanityCmd(name, m.cfg.Profiles[name], m.cfg.RsyncPath)
+	return m, sanityCmd(m.cfg, name, m.cfg.RsyncPath)
 }
 
 // statusResultMsg carries a background Status compute back into Update. name
@@ -603,9 +618,16 @@ type sanityResultMsg struct {
 	result sanity.Result
 }
 
-// sanityCmd runs the stat-only sanity.Check off the UI thread.
-func sanityCmd(name string, p config.Profile, rsyncBin string) tea.Cmd {
+// sanityCmd resolves the named profile's server reference and runs the
+// stat-only sanity.Check off the UI thread. A resolution failure (unknown
+// server, or an old embedded rsync profile) comes back as a Result carrying
+// only ConfigErr, so the list surfaces it and offers no actions.
+func sanityCmd(cfg *config.Config, name, rsyncBin string) tea.Cmd {
 	return func() tea.Msg {
+		p, err := cfg.ResolveProfile(name)
+		if err != nil {
+			return sanityResultMsg{name: name, result: sanity.Result{ConfigErr: err.Error()}}
+		}
 		return sanityResultMsg{name: name, result: sanity.Check(p, rsyncBin)}
 	}
 }
@@ -872,6 +894,12 @@ func (m model) updateProfile(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case "Status":
+		name := m.profile.name
+		p, err := m.cfg.ResolveProfile(name)
+		if err != nil {
+			m.profile.actionErr = err
+			return m, nil
+		}
 		m.profile.checking = true
 		m.pane = paneActivity // lock focus to the Activity panel while it runs
 		m.profile.err = nil
@@ -892,14 +920,13 @@ func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 		m.cancel = nil
 		m.actionSeq++
 		seq := m.actionSeq
-		p := m.cfg.Profiles[m.profile.name]
 		// Also refresh the sanity check so the Details existence marks
 		// reflect the current on-disk state (e.g. a root created since the
 		// profile was opened).
 		return m, tea.Batch(
-			statusCmd(m.profile.name, p, seq, m.cfg.RsyncPath),
-			localStatCmd(m.profile.name, p, seq),
-			sanityCmd(m.profile.name, p, m.cfg.RsyncPath),
+			statusCmd(name, p, seq, m.cfg.RsyncPath),
+			localStatCmd(name, p, seq),
+			sanityCmd(m.cfg, name, m.cfg.RsyncPath),
 		)
 	case "Checkout":
 		m.confirmName = m.profile.name
@@ -986,6 +1013,9 @@ func (m model) activateFormSlot() (tea.Model, tea.Cmd, bool) {
 	case slotTypeSel:
 		m.form.cycleKind(1)
 		return m, nil, true
+	case slotServerSel:
+		m.form.cycleServer(1)
+		return m, nil, true
 	case slotRemove:
 		return m, m.form.removeSubpath(m.form.focusField()), true
 	case slotAdd:
@@ -1004,6 +1034,17 @@ func (m model) activateFormSlot() (tea.Model, tea.Cmd, bool) {
 
 func (m model) submitForm() (tea.Model, tea.Cmd) {
 	name, p := m.form.values()
+	// Gate the rsync kind: require a selected server
+	if m.form.kind == remoteRsync {
+		if len(m.form.serverNames) == 0 {
+			m.form.err = "select a server (press v on the main view to add one)"
+			return m, nil
+		}
+		if m.form.serverSel < 0 || m.form.serverSel >= len(m.form.serverNames) {
+			m.form.err = "select a server (press v on the main view to add one)"
+			return m, nil
+		}
+	}
 	if err := validateProfile(m.cfg, m.form.origName, name, p); err != nil {
 		m.form.err = err.Error()
 		return m, nil
@@ -1030,7 +1071,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	m.refreshList()
 	m.mode = modeMain
 	m.err = nil
-	return m, sanityCmd(name, p, m.cfg.RsyncPath)
+	return m, sanityCmd(m.cfg, name, m.cfg.RsyncPath)
 }
 
 // cloneProfiles returns a shallow copy of p so a mutation can be snapshotted
@@ -1065,9 +1106,21 @@ func validateProfile(cfg *config.Config, origName, name string, p config.Profile
 	if err := config.ValidateRoot(p.LocalRoot); err != nil {
 		return fmt.Errorf("local root: %w", err)
 	}
-	// The remote also accepts ssh:// and rsync:// endpoint URLs.
-	if err := config.ValidateRemoteRoot(p.RemoteRoot); err != nil {
-		return fmt.Errorf("remote root: %w", err)
+	// RULING 1: Branch on p.Server. When set, validate that the server exists
+	// and the module is non-empty. Otherwise, validate RemoteRoot as before.
+	if p.Server != "" {
+		// Server-backed rsync profile
+		if _, exists := cfg.Servers[p.Server]; !exists {
+			return fmt.Errorf("unknown server %q", p.Server)
+		}
+		if strings.TrimSpace(p.RemoteModule) == "" {
+			return fmt.Errorf("module is required")
+		}
+	} else {
+		// URL-based profile (ssh://, local, or legacy rsync://)
+		if err := config.ValidateRemoteRoot(p.RemoteRoot); err != nil {
+			return fmt.Errorf("remote root: %w", err)
+		}
 	}
 	for _, sub := range p.Subpaths {
 		if err := config.ValidateSubpath(sub); err != nil {
@@ -1090,6 +1143,10 @@ func (m model) View() string {
 		return m.overlayModal(confirmModal(m.confirmKind, m.confirmName, m.confirmParams(), m.width))
 	case modeSettings:
 		return m.overlayModal(m.settings.View())
+	case modeServers:
+		return m.overlayModal(m.serversView())
+	case modeServerForm:
+		return m.overlayModal(m.serverForm.View())
 	default:
 		return m.mainView(false)
 	}
@@ -1133,7 +1190,15 @@ func (m model) mainView(dim bool) string {
 		topBody = m.list.view(leftW-2, topH-2)
 		name, _ = m.list.selected()
 	}
-	detailsBody := renderDetails(name, m.cfg.Profiles[name], m.checks[name], leftW-2)
+	// Resolve server-backed profiles for display so the Details box shows the
+	// composed rsync:// URL rather than a blank RemoteRoot. Fall back to the
+	// stored profile on resolve error so broken profiles still render (their
+	// ConfigErr is surfaced in the Actions box).
+	displayProfile := m.cfg.Profiles[name]
+	if resolved, err := m.cfg.ResolveProfile(name); err == nil {
+		displayProfile = resolved
+	}
+	detailsBody := renderDetails(name, displayProfile, m.checks[name], leftW-2)
 	if m.sub == subActions {
 		detailsBody += pendingBlock(m.profile.result)
 		detailsBody += contentsBlock(m.profile.fileStats, m.profile.scanning, m.profile.statErr)
@@ -1311,4 +1376,239 @@ func (m model) statusMaxScroll() int {
 		return max
 	}
 	return 0
+}
+
+// --- Server management ---
+
+// openServers opens the servers list modal.
+func (m model) openServers() (tea.Model, tea.Cmd) {
+	m.refreshServers()
+	m.mode = modeServers
+	return m, nil
+}
+
+// refreshServers updates the servers list from the config.
+func (m *model) refreshServers() {
+	m.servers.setNames(sortedServerNames(m.cfg.Servers))
+}
+
+// updateServers handles the servers list modal: arrow keys to move, enter/e to
+// edit, a to add, d to delete, esc to close.
+func (m model) updateServers(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch key.String() {
+	case "esc", "q":
+		m.mode = modeMain
+		return m, nil
+	case "a":
+		m.serverForm = newServerForm("", config.Server{}, m.path)
+		m.serverForm.setWidth(m.width)
+		m.mode = modeServerForm
+		return m, textinput.Blink
+	case "e", "enter":
+		if name, ok := m.servers.selected(); ok {
+			m.serverForm = newServerForm(name, m.cfg.Servers[name], m.path)
+			m.serverForm.setWidth(m.width)
+			m.mode = modeServerForm
+			return m, textinput.Blink
+		}
+		return m, nil
+	case "d":
+		if name, ok := m.servers.selected(); ok {
+			m.serverRefs = serverRefCount(m.cfg, name)
+			m.confirmName = name
+			m.confirmKind = confirmDeleteServer
+			m.confirmFocus = confirmFocusCancel
+			m.mode = modeConfirm
+			return m, nil
+		}
+		return m, nil
+	case "up", "w":
+		m.servers.moveUp()
+		return m, nil
+	case "down", "s":
+		m.servers.moveDown()
+		return m, nil
+	}
+	return m, nil
+}
+
+// updateServerForm handles the server form modal: focus movement, esc to cancel,
+// enter/space to save. Mirrors updateSettings.
+func (m model) updateServerForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		var cmd tea.Cmd
+		m.serverForm, cmd = m.serverForm.update(msg)
+		return m, cmd
+	}
+	switch key.String() {
+	case "esc":
+		m.mode = modeServers
+		return m, nil
+	case "tab", "down":
+		return m, m.serverForm.focusNext()
+	case "shift+tab", "up":
+		return m, m.serverForm.focusPrev()
+	case "left":
+		if m.serverForm.focus == m.serverForm.cancelSlot() {
+			return m, m.serverForm.setFocus(m.serverForm.saveSlot())
+		}
+	case "right":
+		if m.serverForm.focus == m.serverForm.saveSlot() {
+			return m, m.serverForm.setFocus(m.serverForm.cancelSlot())
+		}
+	case "enter":
+		if m.serverForm.focus == m.serverForm.cancelSlot() {
+			m.mode = modeServers
+			return m, nil
+		}
+		// On an input or on Save: submit.
+		return m.submitServer()
+	case " ":
+		switch m.serverForm.focus {
+		case m.serverForm.saveSlot():
+			return m.submitServer()
+		case m.serverForm.cancelSlot():
+			m.mode = modeServers
+			return m, nil
+		}
+		// On an input: fall through to type the space.
+	}
+	var cmd tea.Cmd
+	m.serverForm, cmd = m.serverForm.update(msg)
+	return m, cmd
+}
+
+// submitServer saves the edited server to disk. On failure it keeps the modal
+// open with an error. On success it returns to the servers list.
+func (m model) submitServer() (tea.Model, tea.Cmd) {
+	if err := m.serverForm.validate(); err != nil {
+		m.serverForm.err = err.Error()
+		return m, nil
+	}
+	name, srv := m.serverForm.values()
+	origName := m.serverForm.origName
+
+	// Check for duplicate name when renaming
+	if name != origName {
+		if _, exists := m.cfg.Servers[name]; exists {
+			m.serverForm.err = "server \"" + name + "\" already exists"
+			return m, nil
+		}
+	}
+
+	// Resolve the password file. srv.PasswordFile is the path-field value; a
+	// typed password is written to it (or, if the field is blank, to the default
+	// managed location for this name). A managed file follows a rename.
+	password := m.serverForm.password()
+	finalPath := srv.PasswordFile
+	if origName != "" && origName != name {
+		oldManaged := config.ServerPasswordPath(m.path, origName)
+		if finalPath == oldManaged && m.cfg.Servers[origName].PasswordFile == oldManaged {
+			newManaged := config.ServerPasswordPath(m.path, name)
+			if password == "" {
+				_ = os.Rename(oldManaged, newManaged) // best-effort: follow the rename
+			} else {
+				_ = os.Remove(oldManaged) // stale; the new secret is written below
+			}
+			finalPath = newManaged
+		}
+	}
+	if password != "" {
+		if finalPath == "" {
+			finalPath = config.ServerPasswordPath(m.path, name)
+		}
+		if err := config.WriteServerPassword(finalPath, password); err != nil {
+			m.serverForm.err = "write password file: " + err.Error()
+			return m, nil
+		}
+	}
+	srv.PasswordFile = finalPath
+
+	// Save with rollback
+	prev := cloneServers(m.cfg.Servers)
+	if origName != "" && origName != name {
+		delete(m.cfg.Servers, origName)
+	}
+	if m.cfg.Servers == nil {
+		m.cfg.Servers = make(map[string]config.Server)
+	}
+	m.cfg.Servers[name] = srv
+
+	if err := commitServers(m.path, m.cfg, prev); err != nil {
+		m.serverForm.err = "save failed: " + err.Error()
+		return m, nil
+	}
+
+	m.refreshServers()
+	m.mode = modeServers
+	return m, nil
+}
+
+// deleteConfirmedServer removes m.confirmName from the config and persists it,
+// rolling back in memory if the save fails.
+func (m model) deleteConfirmedServer() (tea.Model, tea.Cmd) {
+	// Capture the password file before removal so a dibs-managed one can be
+	// cleaned up after a successful save (a bring-your-own path is left alone).
+	deleted := m.cfg.Servers[m.confirmName]
+	managed := config.ServerPasswordPath(m.path, m.confirmName)
+	prev := cloneServers(m.cfg.Servers)
+	delete(m.cfg.Servers, m.confirmName)
+	if err := commitServers(m.path, m.cfg, prev); err != nil {
+		m.err = err
+		m.mode = modeServers
+		return m, nil
+	}
+	if deleted.PasswordFile == managed {
+		_ = os.Remove(managed) // best-effort: config already saved
+	}
+	m.refreshServers()
+	m.mode = modeServers
+	m.err = nil
+	return m, nil
+}
+
+// serversView renders the servers list modal.
+func (m model) serversView() string {
+	width := 60
+	if m.width > 0 && m.width-8 < width {
+		width = m.width - 8
+	}
+	if width < 30 {
+		width = 30
+	}
+
+	height := 20
+	if len(m.servers.names) > height {
+		height = len(m.servers.names)
+	}
+	if height < 3 {
+		height = 3
+	}
+	if height > 30 {
+		height = 30
+	}
+
+	var content strings.Builder
+	if len(m.servers.names) == 0 {
+		content.WriteString(helpTextStyle.Render("No servers configured"))
+	} else {
+		content.WriteString(m.servers.view(width-4, height))
+	}
+
+	content.WriteString("\n\n")
+	sep := helpTextStyle.Render(" · ")
+	content.WriteString(hint("a", "Add") + sep + hint("e/↵", "Edit") + sep + hint("d", "Delete") + sep + hint("esc", "Close"))
+
+	if m.err != nil {
+		content.WriteString("\n\n")
+		content.WriteString(errStyle.Render(m.err.Error()))
+	}
+
+	body := lipgloss.NewStyle().Padding(0, 1).Render(content.String())
+	return titledBox("Servers", body, width, lipgloss.Height(body)+2, true)
 }

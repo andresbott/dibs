@@ -63,7 +63,7 @@ func newProfileView(name string) profileModel { return profileModel{name: name} 
 // instead. The lifecycle Runner stays the real guard.
 func visibleActions(r *sanity.Result, id ident.Ident, profileID string) []string {
 	switch {
-	case r == nil:
+	case r == nil || r.ConfigErr != "":
 		return nil
 	case r.CheckedOut && r.Marker != nil && r.Marker.OwnedBy(id.By, id.Host, profileID):
 		return []string{"Status", "Sync", "Check-in"}
@@ -204,7 +204,17 @@ func actionGlyph(a string) string {
 // Actions box stays focused on the action list; before sanity has returned there
 // are no actions. While an action runs the whole list renders dimmed with no
 // cursor marker: nothing can be launched until the run finishes or is canceled.
+// When a profile's server reference could not be resolved (ConfigErr), the error
+// is shown in place of the action list.
 func renderActions(cursor, width int, res *sanity.Result, id ident.Ident, profileID string, running bool) string {
+	// Surface resolution errors so a broken profile explains itself.
+	if res != nil && res.ConfigErr != "" {
+		return errStyle.Render(res.ConfigErr)
+	}
+	// No sanity result yet (the check is still running): show a placeholder.
+	if res == nil {
+		return helpTextStyle.Render("checking…")
+	}
 	var b strings.Builder
 	for i, a := range visibleActions(res, id, profileID) {
 		if i > 0 {

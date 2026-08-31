@@ -41,7 +41,8 @@ func TestInitEmptyConfigStillChecksRsync(t *testing.T) {
 }
 
 func TestSanityCmdChecksFilesystem(t *testing.T) {
-	msg := sanityCmd("p", config.Profile{LocalRoot: t.TempDir(), RemoteRoot: t.TempDir()}, "")()
+	cfg := &config.Config{Profiles: map[string]config.Profile{"p": {LocalRoot: t.TempDir(), RemoteRoot: t.TempDir()}}}
+	msg := sanityCmd(cfg, "p", "")()
 	res, ok := msg.(sanityResultMsg)
 	if !ok {
 		t.Fatalf("sanityCmd produced %T, want sanityResultMsg", msg)
@@ -129,7 +130,7 @@ func TestSubmitFormRenameDropsOldCheck(t *testing.T) {
 	// the edit form with newForm, the same constructor the "e" key uses, and
 	// mutate its name input directly rather than typing over the prefilled value.
 	m.mode = modeForm
-	m.form = newForm("alpha", m.cfg.Profiles["alpha"])
+	m.form = newForm("alpha", m.cfg.Profiles["alpha"], m.cfg.Servers)
 	m.form.inputs[0].SetValue("gamma")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -255,10 +256,45 @@ func writeConfig(t *testing.T, identity, profile, local, remote string) string {
 			profile: {LocalRoot: local, RemoteRoot: remote},
 		},
 	}
+	serverizeConfig(cfg)
 	if err := config.Save(path, cfg); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+// serverizeConfig rewrites any profile whose RemoteRoot is an rsync:// URL into
+// the server-based shape the config now requires: the daemon connection (host,
+// port, user, and any rsyncd password file) moves into a named cfg.Servers
+// entry, and the profile references it by name plus its module/path. Path and
+// ssh:// profiles are left untouched. This keeps the e2e daemon fixtures valid
+// now that rsync connections are configured as servers rather than embedded in
+// each profile's remote root.
+func serverizeConfig(cfg *config.Config) {
+	for name, p := range cfg.Profiles {
+		if !strings.HasPrefix(p.RemoteRoot, "rsync://") {
+			continue
+		}
+		parts, err := config.SplitRemoteRoot(p.RemoteRoot)
+		if err != nil {
+			continue
+		}
+		if cfg.Servers == nil {
+			cfg.Servers = map[string]config.Server{}
+		}
+		serverName := name + "-srv"
+		cfg.Servers[serverName] = config.Server{
+			Host:         parts.Host,
+			Port:         parts.Port,
+			User:         parts.User,
+			PasswordFile: p.RsyncdPasswordFile,
+		}
+		p.Server = serverName
+		p.RemoteModule = parts.ModulePath
+		p.RemoteRoot = ""
+		p.RsyncdPasswordFile = ""
+		cfg.Profiles[name] = p
+	}
 }
 
 // markerFileName is the checkout marker's filename (internal/marker.FileName).

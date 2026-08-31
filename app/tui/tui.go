@@ -66,7 +66,7 @@ type model struct {
 	pane         actPane // which panel is focused while sub == subActions
 	form         formModel
 	settings     settingsModel
-	servers      serversModel
+	servers      listModel
 	serverForm   serverFormModel
 	profile      profileModel
 	confirmName  string

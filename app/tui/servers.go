@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // serverFormModel is the server add/edit form: fixed labeled underline inputs
@@ -281,75 +280,6 @@ func (s serverFormModel) View() string {
 	}
 	body := lipgloss.NewStyle().Padding(0, 1).Render(content.String())
 	return titledBox(title, body, s.modalWidth(), lipgloss.Height(body)+2, true)
-}
-
-// serversModel is the servers list: names + cursor, mirroring listModel.
-type serversModel struct {
-	names  []string
-	cursor int
-}
-
-func newServersList(names []string) serversModel {
-	return serversModel{names: names}
-}
-
-func (l *serversModel) setNames(names []string) {
-	l.names = names
-	if l.cursor >= len(names) {
-		l.cursor = len(names) - 1
-	}
-	if l.cursor < 0 {
-		l.cursor = 0
-	}
-}
-
-func (l serversModel) selected() (string, bool) {
-	if len(l.names) == 0 {
-		return "", false
-	}
-	return l.names[l.cursor], true
-}
-
-func (l *serversModel) moveUp() {
-	if l.cursor > 0 {
-		l.cursor--
-	}
-}
-
-func (l *serversModel) moveDown() {
-	if l.cursor < len(l.names)-1 {
-		l.cursor++
-	}
-}
-
-// view renders up to height rows, scrolled so the cursor stays visible.
-func (l serversModel) view(width, height int) string {
-	if height <= 0 || height > len(l.names) {
-		height = len(l.names)
-	}
-	start := 0
-	if l.cursor >= height {
-		start = l.cursor - height + 1
-	}
-	end := start + height
-	if end > len(l.names) {
-		end = len(l.names)
-	}
-
-	var b strings.Builder
-	for i := start; i < end; i++ {
-		if i > start {
-			b.WriteString("\n")
-		}
-		line := l.names[i]
-		prefix := "  "
-		if i == l.cursor {
-			prefix = "▌ "
-			line = selectedRowStyle.Render(line)
-		}
-		b.WriteString(ansi.Truncate(prefix+line, width, ""))
-	}
-	return b.String()
 }
 
 // serverRefCount returns the names of profiles that reference the given server,

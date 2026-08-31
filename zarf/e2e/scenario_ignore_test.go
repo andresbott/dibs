@@ -20,6 +20,7 @@ func writeConfigProfile(t *testing.T, identity, name string, p config.Profile) s
 		Identity: identity,
 		Profiles: map[string]config.Profile{name: p},
 	}
+	serverizeConfig(cfg)
 	if err := config.Save(path, cfg); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

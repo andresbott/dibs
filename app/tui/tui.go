@@ -364,7 +364,7 @@ func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) openForm(origName string, p config.Profile) (tea.Model, tea.Cmd) {
-	m.form = newForm(origName, p)
+	m.form = newForm(origName, p, m.cfg.Servers)
 	m.form.setWidth(m.width)
 	m.form.termHeight = m.height
 	m.form.rsyncBin = m.cfg.RsyncPath
@@ -1012,6 +1012,9 @@ func (m model) activateFormSlot() (tea.Model, tea.Cmd, bool) {
 	case slotTypeSel:
 		m.form.cycleKind(1)
 		return m, nil, true
+	case slotServerSel:
+		m.form.cycleServer(1)
+		return m, nil, true
 	case slotRemove:
 		return m, m.form.removeSubpath(m.form.focusField()), true
 	case slotAdd:
@@ -1030,6 +1033,17 @@ func (m model) activateFormSlot() (tea.Model, tea.Cmd, bool) {
 
 func (m model) submitForm() (tea.Model, tea.Cmd) {
 	name, p := m.form.values()
+	// Gate the rsync kind: require a selected server
+	if m.form.kind == remoteRsync {
+		if len(m.form.serverNames) == 0 {
+			m.form.err = "select a server (press v on the main view to add one)"
+			return m, nil
+		}
+		if m.form.serverSel < 0 || m.form.serverSel >= len(m.form.serverNames) {
+			m.form.err = "select a server (press v on the main view to add one)"
+			return m, nil
+		}
+	}
 	if err := validateProfile(m.cfg, m.form.origName, name, p); err != nil {
 		m.form.err = err.Error()
 		return m, nil
@@ -1091,9 +1105,21 @@ func validateProfile(cfg *config.Config, origName, name string, p config.Profile
 	if err := config.ValidateRoot(p.LocalRoot); err != nil {
 		return fmt.Errorf("local root: %w", err)
 	}
-	// The remote also accepts ssh:// and rsync:// endpoint URLs.
-	if err := config.ValidateRemoteRoot(p.RemoteRoot); err != nil {
-		return fmt.Errorf("remote root: %w", err)
+	// RULING 1: Branch on p.Server. When set, validate that the server exists
+	// and the module is non-empty. Otherwise, validate RemoteRoot as before.
+	if p.Server != "" {
+		// Server-backed rsync profile
+		if _, exists := cfg.Servers[p.Server]; !exists {
+			return fmt.Errorf("unknown server %q", p.Server)
+		}
+		if strings.TrimSpace(p.RemoteModule) == "" {
+			return fmt.Errorf("module is required")
+		}
+	} else {
+		// URL-based profile (ssh://, local, or legacy rsync://)
+		if err := config.ValidateRemoteRoot(p.RemoteRoot); err != nil {
+			return fmt.Errorf("remote root: %w", err)
+		}
 	}
 	for _, sub := range p.Subpaths {
 		if err := config.ValidateSubpath(sub); err != nil {

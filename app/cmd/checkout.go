@@ -31,9 +31,9 @@ func newCheckoutCmdWithRunner(cfgPath *string, r lifecycle.Runner) *cobra.Comman
 				return err
 			}
 			name := args[0]
-			p, ok := cfg.Profiles[name]
-			if !ok {
-				return fmt.Errorf("profile %q not found", name)
+			p, err := cfg.ResolveProfile(name)
+			if err != nil {
+				return err
 			}
 			id, err := ident.Resolve(cfg)
 			if err != nil {

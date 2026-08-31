@@ -25,9 +25,9 @@ func newStatusCmd(cfgPath *string) *cobra.Command {
 				return err
 			}
 			name := args[0]
-			profile, ok := cfg.Profiles[name]
-			if !ok {
-				return fmt.Errorf("profile %q not found", name)
+			profile, err := cfg.ResolveProfile(name)
+			if err != nil {
+				return err
 			}
 			if err := checkRsync(cmd.Context(), cfg); err != nil {
 				return err

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,14 +15,17 @@ import (
 )
 
 // serverFormModel is the server add/edit form: fixed labeled underline inputs
-// for Name, Host, Port, User, and Password file, followed by Save and Cancel
-// action buttons. Modeled on settingsModel.
+// for Name, Host, Port, User, Password, and Password file, followed by Save and
+// Cancel action buttons. Modeled on settingsModel. A typed Password is written
+// to the Password file at save time (see submitServer); the field itself is
+// never persisted — only the file path lives in the config.
 type serverFormModel struct {
-	inputs   []textinput.Model
-	focus    int
-	err      string
-	width    int
-	origName string // the original name when editing (empty when adding)
+	inputs     []textinput.Model
+	focus      int
+	err        string
+	width      int
+	origName   string // the original name when editing (empty when adding)
+	configPath string // config file path, used to derive the default password-file location
 }
 
 // Field indexes for serverFormModel.inputs.
@@ -30,7 +34,8 @@ const (
 	srvHost
 	srvPort
 	srvUser
-	srvPass
+	srvPassword // the secret; typed here, written to srvPassFile's path on save
+	srvPassFile // path to the rsync password file
 )
 
 func (s serverFormModel) saveSlot() int   { return len(s.inputs) }
@@ -43,8 +48,10 @@ func (s serverFormModel) onInput() bool { return s.focus < len(s.inputs) }
 // newServerForm builds the form for a server: one input per field, prefilled
 // with the given server values. The first input is focused. origName is the
 // server name when editing (used to allow renaming), or empty when adding.
-func newServerForm(origName string, srv config.Server) serverFormModel {
-	inputs := make([]textinput.Model, 5)
+// configPath is the config file's path, used to show where a typed password
+// will be stored (the default password-file location beside the config).
+func newServerForm(origName string, srv config.Server, configPath string) serverFormModel {
+	inputs := make([]textinput.Model, 6)
 	for i := range inputs {
 		inputs[i] = textinput.New()
 		inputs[i].CharLimit = 128
@@ -52,31 +59,69 @@ func newServerForm(origName string, srv config.Server) serverFormModel {
 		inputs[i].Placeholder = ""
 	}
 
-	// Prefill values
+	// Prefill values. The Password field is always blank: on edit, blank means
+	// "keep the existing file", and the secret is never rendered back.
 	inputs[srvName].SetValue(origName)
 	inputs[srvHost].SetValue(srv.Host)
 	if srv.Port > 0 {
 		inputs[srvPort].SetValue(strconv.Itoa(srv.Port))
 	}
 	inputs[srvUser].SetValue(srv.User)
-	inputs[srvPass].SetValue(srv.PasswordFile)
+	inputs[srvPassFile].SetValue(srv.PasswordFile)
+
+	// Mask the secret as it is typed.
+	inputs[srvPassword].EchoMode = textinput.EchoPassword
+	inputs[srvPassword].EchoCharacter = '•'
 
 	inputs[srvPort].Placeholder = "873 (default)"
 	inputs[srvUser].Placeholder = "none"
-	inputs[srvPass].Placeholder = "none"
+	inputs[srvPassword].Placeholder = "none"
 
-	s := serverFormModel{inputs: inputs, origName: origName}
+	s := serverFormModel{inputs: inputs, origName: origName, configPath: configPath}
+	s.refreshPassFilePlaceholder()
 	if len(s.inputs) > 0 {
 		s.inputs[0].Focus()
 	}
 	return s
 }
 
-// modalWidth caps the form window's width.
+// password returns the typed secret, or "" when the field is blank. A
+// whitespace-only entry counts as blank (no password); a real password is
+// returned verbatim (not trimmed), so intentional characters are preserved.
+func (s serverFormModel) password() string {
+	v := s.inputs[srvPassword].Value()
+	if strings.TrimSpace(v) == "" {
+		return ""
+	}
+	return v
+}
+
+// refreshPassFilePlaceholder sets the Password file field's greyed placeholder
+// to the default location a typed password would be written to for the name
+// currently in the form — so the user can see where the secret will land. When
+// the name is blank it shows the "<name>.pw" pattern instead of a concrete path.
+func (s *serverFormModel) refreshPassFilePlaceholder() {
+	name := strings.TrimSpace(s.inputs[srvName].Value())
+	if name == "" {
+		// Absolute dir so the empty-name pattern matches the concrete (absolute)
+		// path shown once a name is typed.
+		dir := filepath.Dir(s.configPath)
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+		s.inputs[srvPassFile].Placeholder = filepath.Join(dir, "<name>.pw")
+		return
+	}
+	s.inputs[srvPassFile].Placeholder = config.ServerPasswordPath(s.configPath, name)
+}
+
+// modalWidth caps the form window's width. The cap matches the profile form so
+// a full password-file path (an absolute path shown in the Password file field
+// / its default-location placeholder) fits without truncation.
 func (s serverFormModel) modalWidth() int {
 	w := s.width - 8
-	if w > 60 {
-		w = 60
+	if w > 100 {
+		w = 100
 	}
 	if w < 30 {
 		w = 30
@@ -133,7 +178,7 @@ func (s serverFormModel) values() (string, config.Server) {
 	host := strings.TrimSpace(s.inputs[srvHost].Value())
 	portStr := strings.TrimSpace(s.inputs[srvPort].Value())
 	user := strings.TrimSpace(s.inputs[srvUser].Value())
-	passFile := strings.TrimSpace(s.inputs[srvPass].Value())
+	passFile := strings.TrimSpace(s.inputs[srvPassFile].Value())
 
 	port := 0
 	if portStr != "" {
@@ -168,7 +213,9 @@ func (s serverFormModel) validate() error {
 	return config.ValidateServer(srv)
 }
 
-// update forwards a message to the focused input (no-op on the buttons).
+// update forwards a message to the focused input (no-op on the buttons). Typing
+// in the Name field refreshes the Password file placeholder so it always shows
+// where a typed password would be stored for the current name.
 func (s serverFormModel) update(msg tea.Msg) (serverFormModel, tea.Cmd) {
 	if !s.onInput() {
 		return s, nil
@@ -176,6 +223,9 @@ func (s serverFormModel) update(msg tea.Msg) (serverFormModel, tea.Cmd) {
 	var cmd tea.Cmd
 	i := s.focus
 	s.inputs[i], cmd = s.inputs[i].Update(msg)
+	if i == srvName {
+		s.refreshPassFilePlaceholder()
+	}
 	return s, cmd
 }
 
@@ -194,7 +244,7 @@ func (s serverFormModel) underline(i int) string {
 }
 
 func (s serverFormModel) View() string {
-	labels := []string{"Name", "Host", "Port", "User", "Password file"}
+	labels := []string{"Name", "Host", "Port", "User", "Password", "Password file"}
 	var content strings.Builder
 	for i, label := range labels {
 		if i > 0 {

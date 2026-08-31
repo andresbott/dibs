@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -1403,13 +1404,13 @@ func (m model) updateServers(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeMain
 		return m, nil
 	case "a":
-		m.serverForm = newServerForm("", config.Server{})
+		m.serverForm = newServerForm("", config.Server{}, m.path)
 		m.serverForm.setWidth(m.width)
 		m.mode = modeServerForm
 		return m, textinput.Blink
 	case "e", "enter":
 		if name, ok := m.servers.selected(); ok {
-			m.serverForm = newServerForm(name, m.cfg.Servers[name])
+			m.serverForm = newServerForm(name, m.cfg.Servers[name], m.path)
 			m.serverForm.setWidth(m.width)
 			m.mode = modeServerForm
 			return m, textinput.Blink
@@ -1500,6 +1501,34 @@ func (m model) submitServer() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Resolve the password file. srv.PasswordFile is the path-field value; a
+	// typed password is written to it (or, if the field is blank, to the default
+	// managed location for this name). A managed file follows a rename.
+	password := m.serverForm.password()
+	finalPath := srv.PasswordFile
+	if origName != "" && origName != name {
+		oldManaged := config.ServerPasswordPath(m.path, origName)
+		if finalPath == oldManaged && m.cfg.Servers[origName].PasswordFile == oldManaged {
+			newManaged := config.ServerPasswordPath(m.path, name)
+			if password == "" {
+				_ = os.Rename(oldManaged, newManaged) // best-effort: follow the rename
+			} else {
+				_ = os.Remove(oldManaged) // stale; the new secret is written below
+			}
+			finalPath = newManaged
+		}
+	}
+	if password != "" {
+		if finalPath == "" {
+			finalPath = config.ServerPasswordPath(m.path, name)
+		}
+		if err := config.WriteServerPassword(finalPath, password); err != nil {
+			m.serverForm.err = "write password file: " + err.Error()
+			return m, nil
+		}
+	}
+	srv.PasswordFile = finalPath
+
 	// Save with rollback
 	prev := cloneServers(m.cfg.Servers)
 	if origName != "" && origName != name {
@@ -1523,12 +1552,19 @@ func (m model) submitServer() (tea.Model, tea.Cmd) {
 // deleteConfirmedServer removes m.confirmName from the config and persists it,
 // rolling back in memory if the save fails.
 func (m model) deleteConfirmedServer() (tea.Model, tea.Cmd) {
+	// Capture the password file before removal so a dibs-managed one can be
+	// cleaned up after a successful save (a bring-your-own path is left alone).
+	deleted := m.cfg.Servers[m.confirmName]
+	managed := config.ServerPasswordPath(m.path, m.confirmName)
 	prev := cloneServers(m.cfg.Servers)
 	delete(m.cfg.Servers, m.confirmName)
 	if err := commitServers(m.path, m.cfg, prev); err != nil {
 		m.err = err
 		m.mode = modeServers
 		return m, nil
+	}
+	if deleted.PasswordFile == managed {
+		_ = os.Remove(managed) // best-effort: config already saved
 	}
 	m.refreshServers()
 	m.mode = modeServers

@@ -194,8 +194,8 @@ func (m *model) resize(ws tea.WindowSizeMsg) {
 
 func (m model) Init() tea.Cmd {
 	cmds := make([]tea.Cmd, 0, len(m.cfg.Profiles)+2)
-	for name, p := range m.cfg.Profiles {
-		cmds = append(cmds, sanityCmd(name, p, m.cfg.RsyncPath))
+	for name := range m.cfg.Profiles {
+		cmds = append(cmds, sanityCmd(m.cfg, name, m.cfg.RsyncPath))
 	}
 	// Verify the rsync binary up front so a macOS openrsync (or a stale override)
 	// surfaces as a settings dialog at startup, not a cryptic mid-sync failure.
@@ -290,7 +290,7 @@ func (m model) handleActionResult(res actionResultMsg) (tea.Model, tea.Cmd) {
 	}
 	p := m.cfg.Profiles[res.name]
 	// Refresh the sanity mark since the marker changed.
-	cmds := []tea.Cmd{sanityCmd(res.name, p, m.cfg.RsyncPath)}
+	cmds := []tea.Cmd{sanityCmd(m.cfg, res.name, m.cfg.RsyncPath)}
 	// A successful mutating action changed the local tree, so re-scan it to
 	// refresh the Contents summary in the Details box. Only while still on the
 	// profile view — a released check-in has returned to the list — and never
@@ -456,7 +456,7 @@ func (m model) openProfile(name string) (tea.Model, tea.Cmd) {
 	m.pane = paneActions // always open focused on the action list
 	// Refresh the sanity mark so action-row gating reflects the current on-disk
 	// checkout state rather than whatever was cached at startup.
-	return m, sanityCmd(name, m.cfg.Profiles[name], m.cfg.RsyncPath)
+	return m, sanityCmd(m.cfg, name, m.cfg.RsyncPath)
 }
 
 // statusResultMsg carries a background Status compute back into Update. name
@@ -603,9 +603,16 @@ type sanityResultMsg struct {
 	result sanity.Result
 }
 
-// sanityCmd runs the stat-only sanity.Check off the UI thread.
-func sanityCmd(name string, p config.Profile, rsyncBin string) tea.Cmd {
+// sanityCmd resolves the named profile's server reference and runs the
+// stat-only sanity.Check off the UI thread. A resolution failure (unknown
+// server, or an old embedded rsync profile) comes back as a Result carrying
+// only ConfigErr, so the list surfaces it and offers no actions.
+func sanityCmd(cfg *config.Config, name, rsyncBin string) tea.Cmd {
 	return func() tea.Msg {
+		p, err := cfg.ResolveProfile(name)
+		if err != nil {
+			return sanityResultMsg{name: name, result: sanity.Result{ConfigErr: err.Error()}}
+		}
 		return sanityResultMsg{name: name, result: sanity.Check(p, rsyncBin)}
 	}
 }
@@ -872,6 +879,12 @@ func (m model) updateProfile(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case "Status":
+		name := m.profile.name
+		p, err := m.cfg.ResolveProfile(name)
+		if err != nil {
+			m.profile.actionErr = err
+			return m, nil
+		}
 		m.profile.checking = true
 		m.pane = paneActivity // lock focus to the Activity panel while it runs
 		m.profile.err = nil
@@ -892,14 +905,13 @@ func (m model) runSelectedAction(action string) (tea.Model, tea.Cmd) {
 		m.cancel = nil
 		m.actionSeq++
 		seq := m.actionSeq
-		p := m.cfg.Profiles[m.profile.name]
 		// Also refresh the sanity check so the Details existence marks
 		// reflect the current on-disk state (e.g. a root created since the
 		// profile was opened).
 		return m, tea.Batch(
-			statusCmd(m.profile.name, p, seq, m.cfg.RsyncPath),
-			localStatCmd(m.profile.name, p, seq),
-			sanityCmd(m.profile.name, p, m.cfg.RsyncPath),
+			statusCmd(name, p, seq, m.cfg.RsyncPath),
+			localStatCmd(name, p, seq),
+			sanityCmd(m.cfg, name, m.cfg.RsyncPath),
 		)
 	case "Checkout":
 		m.confirmName = m.profile.name
@@ -1030,7 +1042,7 @@ func (m model) submitForm() (tea.Model, tea.Cmd) {
 	m.refreshList()
 	m.mode = modeMain
 	m.err = nil
-	return m, sanityCmd(name, p, m.cfg.RsyncPath)
+	return m, sanityCmd(m.cfg, name, m.cfg.RsyncPath)
 }
 
 // cloneProfiles returns a shallow copy of p so a mutation can be snapshotted

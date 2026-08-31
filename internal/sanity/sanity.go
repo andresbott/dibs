@@ -19,6 +19,11 @@ import (
 
 // Result is the lightweight state of a profile.
 type Result struct {
+	// ConfigErr is set when the profile could not be resolved (unknown server,
+	// or the old embedded rsync shape). When non-empty the other fields are
+	// zero: the profile is misconfigured, so no stat-based check was run.
+	ConfigErr string
+
 	LocalRoot  bool // local_root exists on disk
 	RemoteRoot bool // remote_root exists and is a directory (mounted)
 	CheckedOut bool // a marker is present at the remote root

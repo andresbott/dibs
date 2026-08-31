@@ -496,12 +496,19 @@ func (m *model) beginAction() context.Context {
 // state reset so the Activity box shows a fresh in-progress state.
 func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
+	p, err := m.cfg.ResolveProfile(name)
+	if err != nil {
+		m.profile.actionErr = err
+		m.mode = modeMain
+		m.sub = subActions
+		return m, nil
+	}
 	ctx := (&m).beginAction()
 	// checkin has no --force: it only releases a this-machine-owned, fully-synced
 	// profile. The footer force toggle applies to checkout/sync, not here.
 	// Abandon skips the in-sync verification (the "start over" path).
 	opts := lifecycle.Options{Clean: m.checkinClean, Abandon: m.checkinAbandon}
-	return m, checkinCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)
+	return m, checkinCmd(ctx, m.runner, m.id, name, p, m.actionSeq, opts)
 }
 
 // checkoutConfirmed runs lifecycle.Runner.Checkout for m.confirmName once the
@@ -515,9 +522,16 @@ func (m model) checkinConfirmed() (tea.Model, tea.Cmd) {
 // refuses in the runner, listing the offending paths in Activity.
 func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
+	p, err := m.cfg.ResolveProfile(name)
+	if err != nil {
+		m.profile.actionErr = err
+		m.mode = modeMain
+		m.sub = subActions
+		return m, nil
+	}
 	ctx := (&m).beginAction()
 	opts := lifecycle.Options{Force: m.checkoutSteal, Resume: m.confirmResumable}
-	return m, checkoutCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)
+	return m, checkoutCmd(ctx, m.runner, m.id, name, p, m.actionSeq, opts)
 }
 
 // syncConfirmed runs lifecycle.Runner.Sync for m.confirmName once the user hit
@@ -527,12 +541,19 @@ func (m model) checkoutConfirmed() (tea.Model, tea.Cmd) {
 // checkoutConfirmed.
 func (m model) syncConfirmed() (tea.Model, tea.Cmd) {
 	name := m.confirmName
+	p, err := m.cfg.ResolveProfile(name)
+	if err != nil {
+		m.profile.actionErr = err
+		m.mode = modeMain
+		m.sub = subActions
+		return m, nil
+	}
 	ctx := (&m).beginAction()
 	// Snapshot the last Status result (if one ran) into planned totals; the
 	// run's allow-deletes checkbox decides whether deletes are in the plan.
 	m.profile.progress = newSyncProgress(m.profile.result, m.syncAllowDeletes)
 	opts := lifecycle.Options{Force: m.syncLocalWins, AllowDeletes: m.syncAllowDeletes}
-	cmds := []tea.Cmd{syncCmd(ctx, m.runner, m.id, name, m.cfg.Profiles[name], m.actionSeq, opts)}
+	cmds := []tea.Cmd{syncCmd(ctx, m.runner, m.id, name, p, m.actionSeq, opts)}
 	// Without planned totals the bar is a bouncing eye, which needs a clock.
 	if m.profile.progress.totals == nil {
 		cmds = append(cmds, cylonTick(m.actionSeq))

@@ -175,3 +175,10 @@ func TestBuildRsyncRemoteRootBadPortRejected(t *testing.T) {
 		t.Errorf("ValidateRemoteRoot(%q) should fail on the non-numeric port", root)
 	}
 }
+
+func TestRemoteEndpointUnresolvedServerErrors(t *testing.T) {
+	p := Profile{Server: "nas", RemoteModule: "docs"}
+	if _, err := p.RemoteEndpoint(); err == nil {
+		t.Fatal("expected error resolving an endpoint on an unresolved (Server set) profile")
+	}
+}

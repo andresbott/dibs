@@ -22,6 +22,8 @@ func (p Profile) RemoteIsLocalPath() bool {
 // rsyncd_password_file profile keys feed the corresponding transport's auth setting.
 func (p Profile) RemoteEndpoint() (threewayrsync.Endpoint, error) {
 	switch {
+	case p.Server != "":
+		return threewayrsync.Endpoint{}, fmt.Errorf("profile still references server %q — resolve it via Config.ResolveProfile before use", p.Server)
 	case strings.HasPrefix(p.RemoteRoot, "ssh://"):
 		return p.sshEndpoint()
 	case strings.HasPrefix(p.RemoteRoot, "rsync://"):

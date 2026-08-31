@@ -414,3 +414,15 @@ func TestServersRoundTrip(t *testing.T) {
 		t.Fatalf("server round-trip: got %+v want %+v", got.Servers["nas"], want)
 	}
 }
+
+func TestValidateServer(t *testing.T) {
+	if err := config.ValidateServer(config.Server{Host: "nas"}); err != nil {
+		t.Fatalf("valid server rejected: %v", err)
+	}
+	if err := config.ValidateServer(config.Server{}); err == nil {
+		t.Fatal("empty host accepted")
+	}
+	if err := config.ValidateServer(config.Server{Host: "nas", Port: 70000}); err == nil {
+		t.Fatal("out-of-range port accepted")
+	}
+}

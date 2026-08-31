@@ -37,6 +37,13 @@ type Profile struct {
 	RemoteRoot string `yaml:"remote_root"`
 	// SSHIdentityFile, for an ssh:// remote, is the private key handed to ssh -i.
 	SSHIdentityFile string `yaml:"ssh_identity_file,omitempty"`
+	// Server, when non-empty, names the Config.Servers entry this profile's
+	// rsync daemon remote resolves through (see Config.ResolveProfile). It is
+	// mutually exclusive with a non-empty RemoteRoot; RemoteRoot/RsyncdPasswordFile
+	// are filled by resolution before the profile reaches sanity/status/lifecycle.
+	Server string `yaml:"server,omitempty"`
+	// RemoteModule is the "module[/path]" this profile syncs on its Server.
+	RemoteModule string `yaml:"remote_module,omitempty"`
 	// RsyncdPasswordFile, for an rsync:// remote, is handed to rsync --password-file.
 	RsyncdPasswordFile string `yaml:"rsyncd_password_file,omitempty"`
 	// Subpaths is an intentional hard scope, not a live view of the remote: a folder
@@ -163,6 +170,19 @@ func ValidateName(name string) error {
 func ValidateIdentity(id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("identity is required")
+	}
+	return nil
+}
+
+// ValidateServer reports whether a server's connection fields are usable: a
+// host is required and a given port must be a valid TCP port. An empty port
+// (0) means the rsync daemon default (873).
+func ValidateServer(s Server) error {
+	if strings.TrimSpace(s.Host) == "" {
+		return errors.New("host is required")
+	}
+	if s.Port < 0 || s.Port > 65535 {
+		return errors.New("port must be between 0 and 65535")
 	}
 	return nil
 }

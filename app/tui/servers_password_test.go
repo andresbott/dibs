@@ -19,7 +19,7 @@ func TestSubmitServerWritesPasswordFile(t *testing.T) {
 	m.serverForm = newServerForm("", config.Server{}, path)
 	setServerFormFields(&m.serverForm, "nas", "nas.local", "", "bob", "hunter2", "")
 
-	if _, _ = m.submitServer(); m.serverForm.err != "" {
+	if _, _ = m.finalizeServerSave(); m.serverForm.err != "" {
 		t.Fatalf("submit error: %s", m.serverForm.err)
 	}
 
@@ -54,7 +54,7 @@ func TestSubmitServerBlankPasswordKeepsFile(t *testing.T) {
 	// Re-set fields without touching the (blank) password field.
 	setServerFormFields(&m.serverForm, "nas", "h", "", "", "", pwPath)
 
-	if _, _ = m.submitServer(); m.serverForm.err != "" {
+	if _, _ = m.finalizeServerSave(); m.serverForm.err != "" {
 		t.Fatalf("submit error: %s", m.serverForm.err)
 	}
 	data, err := os.ReadFile(pwPath)
@@ -122,7 +122,7 @@ func TestRenameServerMovesManagedFile(t *testing.T) {
 	// Rename to "backup"; blank password; path field still shows the old managed path.
 	setServerFormFields(&m.serverForm, "backup", "h", "", "", "", oldPw)
 
-	if _, _ = m.submitServer(); m.serverForm.err != "" {
+	if _, _ = m.finalizeServerSave(); m.serverForm.err != "" {
 		t.Fatalf("submit error: %s", m.serverForm.err)
 	}
 

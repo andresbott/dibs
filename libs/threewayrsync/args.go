@@ -131,3 +131,16 @@ func buildDeleteArgs(emptySrc string, dst Endpoint) []string {
 	args = append(args, withTrailingSlash(emptySrc), withTrailingSlash(dst.render()))
 	return args
 }
+
+// buildMakeDirArgs assembles the rsync argument list for creating a directory:
+// emptyLeaf is a local empty directory named after the folder to create, and dst
+// is its parent (the module root when the path has no parent). With --recursive
+// and no trailing slash on the source, rsync transfers the leaf directory itself
+// into dst, creating it. Works uniformly over ssh and the daemon protocol
+// without a remote shell.
+func buildMakeDirArgs(emptyLeaf string, dst Endpoint) []string {
+	args := []string{"--recursive"}
+	args = append(args, endpointArgs(dst)...)
+	args = append(args, emptyLeaf, withTrailingSlash(dst.render()))
+	return args
+}

@@ -35,6 +35,12 @@ var settingsFields = []settingsField{
 		set:      func(c *config.Config, v string) { c.RsyncPath = v },
 		validate: validateRsyncPath,
 	},
+	{
+		label:    defaultLocalRootLabel,
+		get:      func(c *config.Config) string { return c.DefaultLocalRoot },
+		set:      func(c *config.Config, v string) { c.DefaultLocalRoot = v },
+		validate: config.ValidateDefaultLocalRoot,
+	},
 }
 
 // validateRsyncPath gates saving a non-empty rsync override on the binary actually
@@ -50,23 +56,99 @@ func validateRsyncPath(v string) error {
 	return err
 }
 
-// settingsModel is the "Client settings" modal: one text input per
-// settingsField, followed by the Save and Cancel action buttons. focus indexes
-// the inputs first, then Save (saveSlot), then Cancel (cancelSlot).
-type settingsModel struct {
-	inputs    []textinput.Model
-	focus     int
-	err       string
-	width     int  // terminal width last passed to setWidth
-	mandatory bool // opened as the blocking first-run dialog; Cancel/Esc quits the app
+// defaultLocalRootLabel is the settingsField label of the path field that gets
+// an inline Browse button (the one place the label is matched, so a rename only
+// needs updating here).
+const defaultLocalRootLabel = "Default local root"
+
+// defaultLocalRootIdx returns the input index of the Default local root field,
+// or -1 if it is not present.
+func defaultLocalRootIdx() int {
+	for i, f := range settingsFields {
+		if f.label == defaultLocalRootLabel {
+			return i
+		}
+	}
+	return -1
 }
 
-func (s settingsModel) saveSlot() int   { return len(s.inputs) }
-func (s settingsModel) cancelSlot() int { return len(s.inputs) + 1 }
-func (s settingsModel) numSlots() int   { return len(s.inputs) + 2 }
+// settingsSlotKind is the kind of a settings Tab stop.
+type settingsSlotKind int
+
+const (
+	stInput  settingsSlotKind = iota // a text input
+	stBrowse                         // the Default local root's Browse button
+	stSave
+	stCancel
+)
+
+// settingsSlot is one Tab stop: its kind and, for input/browse slots, the input
+// index it belongs to (-1 for the action buttons).
+type settingsSlot struct {
+	kind  settingsSlotKind
+	field int
+}
+
+// settingsModel is the "Client settings" modal: one text input per
+// settingsField, an inline Browse button beside the Default local root, then the
+// Save and Cancel action buttons. focus indexes slots() — the inputs (each
+// followed by its Browse button, if any), then Save, then Cancel.
+type settingsModel struct {
+	inputs     []textinput.Model
+	focus      int
+	err        string
+	width      int  // terminal width last passed to setWidth
+	termHeight int  // terminal height, for sizing the picker
+	mandatory  bool // opened as the blocking first-run dialog; Cancel/Esc quits the app
+
+	picker   dirPicker // directory picker for the Default local root
+	browsing bool      // true while the directory picker is open
+}
+
+// slots is the Tab order: each input in turn (the Default local root input
+// followed by its Browse button), then Save, then Cancel.
+func (s settingsModel) slots() []settingsSlot {
+	dlr := defaultLocalRootIdx()
+	out := make([]settingsSlot, 0, len(s.inputs)+3)
+	for i := range s.inputs {
+		out = append(out, settingsSlot{stInput, i})
+		if i == dlr {
+			out = append(out, settingsSlot{stBrowse, i})
+		}
+	}
+	return append(out, settingsSlot{stSave, -1}, settingsSlot{stCancel, -1})
+}
+
+func (s settingsModel) slotIndex(kind settingsSlotKind) int {
+	for i, sl := range s.slots() {
+		if sl.kind == kind {
+			return i
+		}
+	}
+	return -1
+}
+
+func (s settingsModel) saveSlot() int   { return s.slotIndex(stSave) }
+func (s settingsModel) cancelSlot() int { return s.slotIndex(stCancel) }
+func (s settingsModel) browseSlot() int { return s.slotIndex(stBrowse) }
+func (s settingsModel) numSlots() int   { return len(s.slots()) }
+
+// focusKind is the kind of the currently focused slot.
+func (s settingsModel) focusKind() settingsSlotKind { return s.slots()[s.focus].kind }
+
+// focusField is the input index the focused slot belongs to (its own for an
+// input, the buttoned field for the Browse button, -1 for the actions).
+func (s settingsModel) focusField() int { return s.slots()[s.focus].field }
 
 // onInput reports whether focus is on a text input (as opposed to a button).
-func (s settingsModel) onInput() bool { return s.focus < len(s.inputs) }
+func (s settingsModel) onInput() bool { return s.focusKind() == stInput }
+
+// atInputEnd reports whether the focused input's cursor sits at the end of its
+// text — the point at which Right leaves the field for its Browse button.
+func (s settingsModel) atInputEnd() bool {
+	in := s.inputs[s.focusField()]
+	return in.Position() == len([]rune(in.Value()))
+}
 
 // newSettings builds the modal for cfg: one input per field prefilled from cfg,
 // with the Identity field's placeholder set to the resolved default so an empty
@@ -91,6 +173,9 @@ func newSettings(cfg *config.Config) settingsModel {
 		}
 		if f.label == "Rsync path" {
 			in.Placeholder = "rsync (from PATH)"
+		}
+		if f.label == defaultLocalRootLabel {
+			in.Placeholder = "~/dibs (optional)"
 		}
 		in.SetValue(val)
 		inputs[i] = in
@@ -138,15 +223,20 @@ func (s *settingsModel) setWidth(w int) {
 	}
 }
 
-// setFocus moves focus to slot i (wrapping), focusing the matching input and
-// blurring the rest.
+// setFocus moves focus to slot i (wrapping), focusing the input that slot maps
+// to (if any) and blurring the rest.
 func (s *settingsModel) setFocus(i int) tea.Cmd {
 	n := s.numSlots()
 	i = (i%n + n) % n
 	s.focus = i
+	sl := s.slots()[i]
+	field := -1
+	if sl.kind == stInput {
+		field = sl.field
+	}
 	var cmd tea.Cmd
 	for j := range s.inputs {
-		if j == i {
+		if j == field {
 			cmd = s.inputs[j].Focus()
 		} else {
 			s.inputs[j].Blur()
@@ -188,38 +278,76 @@ func (s settingsModel) update(msg tea.Msg) (settingsModel, tea.Cmd) {
 		return s, nil
 	}
 	var cmd tea.Cmd
-	i := s.focus
+	i := s.focusField()
 	s.inputs[i], cmd = s.inputs[i].Update(msg)
 	return s, cmd
 }
 
+// inputFocused reports whether the text input for field i currently has focus.
+func (s settingsModel) inputFocused(i int) bool { return s.onInput() && s.focusField() == i }
+
 // underline renders input i as its value over a single bottom-border line,
-// accent-coloured when focused, dim otherwise. Mirrors formModel.underline.
+// accent-coloured when focused, dim otherwise. Mirrors formModel.underline. The
+// Default local root reserves room for its inline Browse button so the underline
+// does not span the button.
 func (s settingsModel) underline(i int) string {
 	c := colDim
-	if s.focus == i {
+	if s.inputFocused(i) {
 		c = colAccent
+	}
+	w := s.fieldWidth()
+	if i == defaultLocalRootIdx() {
+		w -= browseButtonWidth
+		if w < 6 {
+			w = 6
+		}
 	}
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, true, false). // bottom only
 		BorderForeground(c).
-		Width(s.fieldWidth()).
+		Width(w).
 		Render(s.inputs[i].View())
 }
 
+// browseButtonWidth is the horizontal budget the inline "[ Browse ]" control
+// (plus its leading space) takes from the Default local root's underline.
+const browseButtonWidth = 11
+
+// browseButton renders the Default local root's inline Browse button, accent +
+// bold when it is the focused slot, dim otherwise.
+func (s settingsModel) browseButton() string {
+	st := lipgloss.NewStyle().Foreground(colDim)
+	if s.focusKind() == stBrowse {
+		st = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	}
+	return st.Render("[ Browse ]")
+}
+
+// fieldRow renders field i's editable area: the underline, plus the inline
+// Browse button for the Default local root.
+func (s settingsModel) fieldRow(i int) string {
+	if i != defaultLocalRootIdx() {
+		return s.underline(i)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, s.underline(i), " ", s.browseButton())
+}
+
 func (s settingsModel) View() string {
+	if s.browsing {
+		return s.pickerView()
+	}
 	var content strings.Builder
 	for i, f := range settingsFields {
 		if i > 0 {
 			content.WriteString("\n")
 		}
 		label := labelStyle
-		if s.focus == i {
+		if s.inputFocused(i) {
 			label = focusLabelStyle
 		}
 		content.WriteString(label.Render(f.label))
 		content.WriteString("\n")
-		content.WriteString(s.underline(i))
+		content.WriteString(s.fieldRow(i))
 	}
 
 	// Centered Save / Cancel action row. The second button (and the esc hint) read

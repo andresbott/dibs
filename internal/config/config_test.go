@@ -296,6 +296,77 @@ func TestValidateRoot(t *testing.T) {
 	}
 }
 
+func TestValidateDefaultLocalRoot(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	// Empty disables the prefill and is allowed.
+	if err := config.ValidateDefaultLocalRoot(""); err != nil {
+		t.Errorf("empty default local root rejected: %v", err)
+	}
+	if err := config.ValidateDefaultLocalRoot("   "); err != nil {
+		t.Errorf("blank default local root rejected: %v", err)
+	}
+	if err := config.ValidateDefaultLocalRoot("relative/path"); err == nil {
+		t.Error("relative default local root should be invalid")
+	}
+	if err := config.ValidateDefaultLocalRoot("/home/me/dibs"); err != nil {
+		t.Errorf("absolute default local root rejected: %v", err)
+	}
+	if err := config.ValidateDefaultLocalRoot("~/dibs"); err != nil {
+		t.Errorf("tilde default local root rejected: %v", err)
+	}
+}
+
+func TestSuggestLocalRoot(t *testing.T) {
+	cases := []struct {
+		base, name, want string
+	}{
+		{"/home/me/dibs", "docs", "/home/me/dibs/docs"},
+		{"~/dibs", "docs", "~/dibs/docs"}, // raw base preserved (unexpanded)
+		{"/home/me/dibs", "", "/home/me/dibs"},
+		{"/home/me/dibs", "  ", "/home/me/dibs"},
+		{"", "docs", ""}, // no base => no suggestion
+		{"  ", "docs", ""},
+		{"  /home/me/dibs  ", "docs", "/home/me/dibs/docs"},
+	}
+	for _, c := range cases {
+		if got := config.SuggestLocalRoot(c.base, c.name); got != c.want {
+			t.Errorf("SuggestLocalRoot(%q, %q) = %q, want %q", c.base, c.name, got, c.want)
+		}
+	}
+}
+
+func TestSaveRoundTripDefaultLocalRoot(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	in := &config.Config{
+		DefaultLocalRoot: "~/dibs",
+		Profiles:         map[string]config.Profile{},
+	}
+	if err := config.Save(p, in); err != nil {
+		t.Fatal(err)
+	}
+	out, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DefaultLocalRoot != "~/dibs" {
+		t.Fatalf("round trip lost the default local root: %q", out.DefaultLocalRoot)
+	}
+}
+
+func TestSaveOmitsEmptyDefaultLocalRoot(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := config.Save(p, &config.Config{Profiles: map[string]config.Profile{}}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "default_local_root") {
+		t.Errorf("empty default local root should be omitted, got:\n%s", data)
+	}
+}
+
 func TestValidateSubpath(t *testing.T) {
 	valid := []string{"a", "a/2024", "nested/deep/path", "./2025/jan", "a/./b"}
 	for _, s := range valid {

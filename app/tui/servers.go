@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -15,8 +16,9 @@ import (
 
 // serverFormModel is the server add/edit form: fixed labeled underline inputs
 // for Name, Host, Port, User, Password, and Password file, followed by Save and
-// Cancel action buttons. Modeled on settingsModel. A typed Password is written
-// to the Password file at save time (see submitServer); the field itself is
+// Cancel action buttons. Modeled on settingsModel. Save first probes the server
+// connection (see servercheck.go) and only then persists: a typed Password is
+// written to the Password file (see finalizeServerSave); the field itself is
 // never persisted — only the file path lives in the config.
 type serverFormModel struct {
 	inputs     []textinput.Model
@@ -25,6 +27,14 @@ type serverFormModel struct {
 	width      int
 	origName   string // the original name when editing (empty when adding)
 	configPath string // config file path, used to derive the default password-file location
+
+	// Connection-check state (see servercheck.go). On Save the form probes the
+	// server before persisting; checking is true while that probe is in flight,
+	// checkSeq stamps it so a result abandoned by esc (or superseded) is dropped.
+	checking  bool
+	checkSeq  int
+	rsyncBin  string      // rsync binary override for the probe; "" => rsync from PATH
+	checkConn connChecker // test seam; nil => a Syncer-backed checker
 }
 
 // Field indexes for serverFormModel.inputs.
@@ -93,6 +103,40 @@ func (s serverFormModel) password() string {
 		return ""
 	}
 	return v
+}
+
+// probePasswordFile resolves a password file to authenticate the connection
+// check with, without touching the server's real managed file. A typed password
+// is written to a private temp file (removed by the returned cleanup); a blank
+// password reuses the file the server already points at (its Password file field
+// value, or the default managed location for the name). The cleanup is always
+// safe to call.
+func (s serverFormModel) probePasswordFile() (string, func(), error) {
+	noop := func() {}
+	if pw := s.password(); pw != "" {
+		f, err := os.CreateTemp("", "dibs-probe-*.pw") // 0600 by default
+		if err != nil {
+			return "", noop, err
+		}
+		path := f.Name()
+		cleanup := func() { _ = os.Remove(path) }
+		if _, err := f.WriteString(pw + "\n"); err != nil {
+			_ = f.Close()
+			cleanup()
+			return "", noop, err
+		}
+		if err := f.Close(); err != nil {
+			cleanup()
+			return "", noop, err
+		}
+		return path, cleanup, nil
+	}
+	name, srv := s.values()
+	path := srv.PasswordFile
+	if path == "" {
+		path = config.ServerPasswordPath(s.configPath, name)
+	}
+	return config.ExpandRoot(path), noop, nil
 }
 
 // refreshPassFilePlaceholder sets the Password file field's greyed placeholder
@@ -264,6 +308,11 @@ func (s serverFormModel) View() string {
 		confirmButton("Save", s.focus == s.saveSlot()), "   ",
 		confirmButton("Cancel", s.focus == s.cancelSlot()))
 	content.WriteString(lipgloss.NewStyle().Width(s.modalWidth() - 4).Align(lipgloss.Center).Render(actions))
+
+	if s.checking {
+		content.WriteString("\n\n")
+		content.WriteString(helpTextStyle.Render("Checking connection… (esc to cancel)"))
+	}
 
 	if s.err != "" {
 		content.WriteString("\n\n")

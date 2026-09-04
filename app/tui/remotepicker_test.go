@@ -42,8 +42,8 @@ func openRsyncBrowse(t *testing.T, modules []threewayrsync.Module, dirs map[stri
 	fakeListers(&m.form, modules, dirs, nil)
 	m = tabToTypeSel(t, m)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Server selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → select nas
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Server selector (nas row)
+	m = update(t, m, spaceKey)                       // select nas
 	// Reach the Module/path row's Browse button via its input.
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Module/path input
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // its Browse button
@@ -138,8 +138,8 @@ func driveRemote(t *testing.T, m model, key tea.KeyMsg) model {
 
 func TestRemoteBrowseDescendAndUp(t *testing.T) {
 	dirs := map[string][]string{
-		"":           {"alpha", "beta"},
-		"beta":       {"nested"},
+		"":            {"alpha", "beta"},
+		"beta":        {"nested"},
 		"beta/nested": {},
 	}
 	m, cmd := openRsyncBrowse(t, testModules, dirs)
@@ -191,6 +191,121 @@ func TestRemoteBrowseSpaceConfirmsIntoField(t *testing.T) {
 	}
 }
 
+// browseIntoData opens the browser, lists modules, and descends into "data" so
+// the picker is in rpDirs. It installs a makeDir seam recording the created path
+// and a listDirs that returns dirsAfter once a folder has been created.
+func browseIntoData(t *testing.T, made *string, dirsAfter []string) model {
+	t.Helper()
+	m, cmd := openRsyncBrowse(t, testModules, map[string][]string{"": {"alpha"}})
+	m = deliver(t, m, cmd)                                // modules
+	m = driveRemote(t, m, tea.KeyMsg{Type: tea.KeyEnter}) // descend into "data" → rpDirs
+	if m.form.remote.phase != rpDirs {
+		t.Fatalf("setup: phase = %d, want rpDirs", m.form.remote.phase)
+	}
+	m.form.makeDir = func(_ context.Context, _ threewayrsync.Daemon, p string) error {
+		if made != nil {
+			*made = p
+		}
+		return nil
+	}
+	if dirsAfter != nil {
+		m.form.listDirs = func(_ context.Context, _ threewayrsync.Daemon, _ string) ([]string, error) {
+			return dirsAfter, nil
+		}
+	}
+	return m
+}
+
+func typeRemote(t *testing.T, m model, s string) model {
+	t.Helper()
+	for _, r := range s {
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	return m
+}
+
+// TestRemoteNewFolderCreatesAndHighlights: pressing "n", typing a name, and
+// Enter creates the folder on the remote, re-lists, and highlights it.
+func TestRemoteNewFolderCreatesAndHighlights(t *testing.T) {
+	var made string
+	m := browseIntoData(t, &made, []string{"alpha", "newdir"})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")}) // open the prompt
+	if m.form.remote.phase != rpNewDir {
+		t.Fatalf("phase = %d, want rpNewDir after n", m.form.remote.phase)
+	}
+	m = typeRemote(t, m, "newdir")
+
+	nm, cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEnter}) // submit → creating
+	m = nm.(model)
+	if m.form.remote.phase != rpCreating {
+		t.Fatalf("phase = %d, want rpCreating after submit", m.form.remote.phase)
+	}
+	// Deliver the create result, then the re-list it triggers.
+	nm, cmd = m.updateForm(cmd())
+	m = nm.(model)
+	m = deliver(t, m, cmd)
+
+	if made != "newdir" {
+		t.Errorf("created path = %q, want newdir", made)
+	}
+	if m.form.remote.phase != rpDirs {
+		t.Fatalf("phase = %d, want rpDirs after create", m.form.remote.phase)
+	}
+	if got := m.form.remote.entries[m.form.remote.cursor]; got != "newdir" {
+		t.Errorf("highlighted entry = %q, want the new folder", got)
+	}
+}
+
+// TestRemoteNewFolderReadOnlyError: a create rejected by the daemon returns to
+// the name prompt with the error shown and the typed name kept.
+func TestRemoteNewFolderReadOnlyError(t *testing.T) {
+	m := browseIntoData(t, nil, nil)
+	m.form.makeDir = func(_ context.Context, _ threewayrsync.Daemon, _ string) error {
+		return errors.New("@ERROR: chdir failed")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = typeRemote(t, m, "nope")
+	nm, cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
+	m = nm.(model)
+	m = update(t, m, cmd()) // deliver the failed create result
+
+	if m.form.remote.phase != rpNewDir {
+		t.Fatalf("phase = %d, want rpNewDir after a failed create", m.form.remote.phase)
+	}
+	if !strings.Contains(m.form.remote.errMsg, "chdir failed") {
+		t.Errorf("errMsg = %q, want the server error", m.form.remote.errMsg)
+	}
+	if got := m.form.remote.input.Value(); got != "nope" {
+		t.Errorf("input = %q, want the typed name kept", got)
+	}
+}
+
+// TestRemoteNewFolderRejectsEmptyName: submitting a blank name shows an inline
+// error and issues no create.
+func TestRemoteNewFolderRejectsEmptyName(t *testing.T) {
+	m := browseIntoData(t, nil, nil)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	nm, cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
+	m = nm.(model)
+	if cmd != nil {
+		t.Fatal("a blank name must not issue a create cmd")
+	}
+	if m.form.remote.phase != rpNewDir || m.form.remote.errMsg == "" {
+		t.Fatalf("want to stay on the prompt with an error, phase=%d err=%q", m.form.remote.phase, m.form.remote.errMsg)
+	}
+}
+
+// TestRemoteNewFolderNotOnModuleList: "n" does nothing on the module list (you
+// cannot create a module).
+func TestRemoteNewFolderNotOnModuleList(t *testing.T) {
+	m, cmd := openRsyncBrowse(t, testModules, map[string][]string{"": {"alpha"}})
+	m = deliver(t, m, cmd) // rpModules
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if m.form.remote.phase != rpModules {
+		t.Fatalf("phase = %d, want rpModules (n is a no-op on the module list)", m.form.remote.phase)
+	}
+}
+
 func TestRemoteBrowseEscKeepsValue(t *testing.T) {
 	m := openAddForm(t)
 	fakeListers(&m.form, testModules, nil, nil)
@@ -216,12 +331,12 @@ func TestRemoteBrowseResumesFromFieldValue(t *testing.T) {
 	m.form.setServers(map[string]config.Server{"nas": {Host: "nas.local"}})
 	fakeListers(&m.form, testModules, map[string][]string{"inner": {"x"}}, &calls)
 	m = tabToTypeSel(t, m)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})               // Server selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // → select nas
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})               // Module/path field
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Server selector (nas row)
+	m = update(t, m, spaceKey)                       // select nas
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Module/path field
 	m = typeRunes(t, m, "data/inner")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // Browse button
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Browse button
 	nm, cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
 	m = nm.(model)
 	// A pre-filled module skips the module list and lists its path directly.
@@ -331,18 +446,17 @@ func TestRemoteBrowseFullFlowPersists(t *testing.T) {
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	fakeListers(&m.form, testModules, map[string][]string{"": {"photos"}}, nil)
 	m = typeRunes(t, m, "pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // remote-type selector
+	m.form.inputs[idxLocal].SetValue("/home/me/pics")
+	m = tabToTypeSel(t, m)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Server selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → select nas
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Server selector (nas row)
+	m = update(t, m, spaceKey)                       // select nas
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Module/path input
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Browse
 	nm, cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEnter})
-	m = deliver(t, nm.(model), cmd)                        // module list
-	m = driveRemote(t, m, tea.KeyMsg{Type: tea.KeyEnter})  // open "data"
-	m = driveRemote(t, m, spaceKey)                        // select "photos"
+	m = deliver(t, nm.(model), cmd)                       // module list
+	m = driveRemote(t, m, tea.KeyMsg{Type: tea.KeyEnter}) // open "data"
+	m = driveRemote(t, m, spaceKey)                       // select "photos"
 	if got := m.form.inputs[idxModulePath].Value(); got != "data/photos" {
 		t.Fatalf("module-path field = %q, want data/photos", got)
 	}

@@ -501,8 +501,8 @@ func TestActivityPaneArrowsScroll(t *testing.T) {
 // action cursor and never scroll the Activity panel, even when it overflows.
 func TestActionsPaneArrowsMoveCursor(t *testing.T) {
 	m := openActions(t, testConfig())
-	m.checks[m.profile.name] = ownLock(m) // Status/Sync/Check-in
-	m.profile.result = manyChangesResult(40)                    // scrollable, to prove it doesn't
+	m.checks[m.profile.name] = ownLock(m)    // Status/Sync/Check-in
+	m.profile.result = manyChangesResult(40) // scrollable, to prove it doesn't
 
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	if m.profile.cursor != 1 {
@@ -705,8 +705,8 @@ func runLocalStatResult(t *testing.T, cmd tea.Cmd) localStatResultMsg {
 // TestStatusEnterSurfacesError: when the remote root is not mounted, Compute
 // errors and the Activity box shows that error.
 func TestStatusEnterSurfacesError(t *testing.T) {
-	m := openActions(t, testConfig())                    // testConfig roots do not exist on disk
-	m.checks["alpha"] = ownLock(m) // Status is offered only when checked out
+	m := openActions(t, testConfig()) // testConfig roots do not exist on disk
+	m.checks["alpha"] = ownLock(m)    // Status is offered only when checked out
 	nm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = nm.(model)
 	res := runStatusResult(t, cmd)

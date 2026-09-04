@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/andresbott/dibs/internal/config"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -41,55 +42,97 @@ func (f *formModel) openPicker() tea.Cmd {
 // (Select confirms, Cancel closes), ←→/a/d switch buttons, tab cycles, esc
 // cancels the picker (same as the list, so it never flips meaning by focus).
 func (f formModel) updatePicker(msg tea.Msg) (formModel, tea.Cmd) {
+	switch res, cmd := f.picker.handleKey(msg); res {
+	case pickerConfirm:
+		return f.confirmSelection()
+	case pickerCancel:
+		f.browsing = false
+		return f, cmd
+	default:
+		return f, cmd
+	}
+}
+
+// pickerKeyResult is what the model should do after a directory-picker keypress:
+// keep browsing, confirm the current selection, or cancel the picker.
+type pickerKeyResult int
+
+const (
+	pickerContinue pickerKeyResult = iota
+	pickerConfirm
+	pickerCancel
+)
+
+// handleKey drives one keypress against the directory picker — navigation, the
+// new-folder prompt, and focus movement all mutate the picker in place — and
+// reports whether the caller should confirm, cancel, or keep browsing, plus any
+// cmd from the name input. Shared by the profile form and the settings picker so
+// their updatePicker wrappers only differ in where a confirmed folder lands.
+func (p *dirPicker) handleKey(msg tea.Msg) (pickerKeyResult, tea.Cmd) {
+	if p.naming {
+		return pickerContinue, p.updateNewDir(msg)
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
-		return f, nil
+		return pickerContinue, nil
 	}
-	if f.picker.focus == focusList {
-		switch k.String() {
-		case "w", "up":
-			f.picker.moveUp()
-		case "s", "down":
-			f.picker.moveDown()
-		case "pgup":
-			f.picker.moveBy(-5)
-		case "pgdown":
-			f.picker.moveBy(5)
-		case " ":
-			return f.confirmSelection()
-		case "enter", "d", "right":
-			f.picker.open()
-		case "a", "left":
-			f.picker.upDir()
-		case "tab":
-			f.picker.focusNext()
-		case "shift+tab":
-			f.picker.focusPrev()
-		case "esc":
-			f.browsing = false
-		}
-		return f, nil
+	if p.focus == focusList {
+		return p.handleListKey(k.String())
 	}
-	switch k.String() {
+	return p.handleButtonKey(k.String())
+}
+
+// handleListKey handles a keypress while the directory list has focus.
+func (p *dirPicker) handleListKey(key string) (pickerKeyResult, tea.Cmd) {
+	switch key {
+	case "w", "up":
+		p.moveUp()
+	case "s", "down":
+		p.moveDown()
+	case "pgup":
+		p.moveBy(-5)
+	case "pgdown":
+		p.moveBy(5)
+	case " ":
+		return pickerConfirm, nil
+	case "enter", "d", "right":
+		p.open()
+	case "a", "left":
+		p.upDir()
+	case "n":
+		return pickerContinue, p.startNewDir()
 	case "tab":
-		f.picker.focusNext()
+		p.focusNext()
 	case "shift+tab":
-		f.picker.focusPrev()
+		p.focusPrev()
+	case "esc":
+		return pickerCancel, nil
+	}
+	return pickerContinue, nil
+}
+
+// handleButtonKey handles a keypress while the Select/Cancel buttons have focus.
+func (p *dirPicker) handleButtonKey(key string) (pickerKeyResult, tea.Cmd) {
+	switch key {
+	case "tab":
+		p.focusNext()
+	case "shift+tab":
+		p.focusPrev()
 	case "left", "a", "right", "d":
-		if f.picker.focus == focusSelect {
-			f.picker.focus = focusCancel
+		if p.focus == focusSelect {
+			p.focus = focusCancel
 		} else {
-			f.picker.focus = focusSelect
+			p.focus = focusSelect
 		}
 	case "enter", " ":
-		if f.picker.focus == focusSelect {
-			return f.confirmSelection()
+		if p.focus == focusSelect {
+			return pickerConfirm, nil
 		}
-		f.browsing = false // Cancel button
+		return pickerCancel, nil // Cancel button
 	case "esc":
-		f.browsing = false
+		return pickerCancel, nil
 	}
-	return f, nil
+	return pickerContinue, nil
 }
 
 // confirmSelection writes the chosen folder into the focused field and closes the
@@ -101,6 +144,9 @@ func (f formModel) confirmSelection() (formModel, tea.Cmd) {
 	}
 	field := f.focusField()
 	f.inputs[field].SetValue(sel)
+	if field == idxLocal {
+		f.localAuto = false // a browsed Local root is a manual choice; stop prefilling
+	}
 	f.browsing = false
 	return f, f.setFocus(f.inputSlot(field))
 }
@@ -234,6 +280,69 @@ type dirPicker struct {
 	offset  int
 	height  int
 	focus   pickerFocus
+
+	// New-folder flow: naming is true while typing a name into input; errMsg holds
+	// an inline validation / mkdir error. Creating is synchronous (a local mkdir).
+	naming bool
+	input  textinput.Model
+	errMsg string
+}
+
+// startNewDir opens the new-folder name prompt for the currently listed directory.
+func (p *dirPicker) startNewDir() tea.Cmd {
+	in := textinput.New()
+	in.Prompt = ""
+	in.Placeholder = "new folder name"
+	in.CharLimit = 128
+	p.input = in
+	p.errMsg = ""
+	p.naming = true
+	return p.input.Focus()
+}
+
+// updateNewDir drives the new-folder prompt: enter creates, esc returns to the
+// list, everything else edits the name input.
+func (p *dirPicker) updateNewDir(msg tea.Msg) tea.Cmd {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "esc":
+			p.naming = false
+			p.errMsg = ""
+			return nil
+		case "enter":
+			p.createDir()
+			return nil
+		}
+	}
+	var cmd tea.Cmd
+	p.input, cmd = p.input.Update(msg)
+	return cmd
+}
+
+// createDir validates the typed name and creates the folder under the listed
+// directory. An invalid name or a failed mkdir stays on the prompt with an
+// inline error; success re-lists the directory and highlights the new folder.
+// An already-existing directory is treated as success (it is just highlighted).
+func (p *dirPicker) createDir() {
+	name := strings.TrimSpace(p.input.Value())
+	switch {
+	case name == "":
+		p.errMsg = "folder name is required"
+		return
+	case strings.ContainsAny(name, `/\`) || name == "." || name == "..":
+		p.errMsg = "invalid folder name"
+		return
+	}
+	if err := os.Mkdir(filepath.Join(p.dir, name), 0o750); err != nil && !os.IsExist(err) {
+		p.errMsg = err.Error()
+		return
+	}
+	p.naming = false
+	p.errMsg = ""
+	p.entries = readSubdirs(p.dir)
+	p.cursor = indexOf(p.entries, name)
+	p.offset = 0
+	p.ensureVisible()
 }
 
 // focusNext / focusPrev cycle through the picker's three focus stops (list,
@@ -331,7 +440,7 @@ func (p dirPicker) hints() string {
 	if p.focus == focusList {
 		return strings.Join([]string{
 			hint("↑↓", "Move"), hint("enter", "Open"), hint("esc", "Cancel"),
-			hint("space", "Select"), hint("tab", "Buttons"), hint("pgup/pgdn", "Jump"),
+			hint("space", "Select"), hint("n", "New folder"), hint("tab", "Buttons"),
 		}, sep)
 	}
 	return strings.Join([]string{
@@ -356,6 +465,16 @@ func (p dirPicker) view(innerWidth int) string {
 	var b strings.Builder
 	b.WriteString(helpTextStyle.Render(ellipsisLeft(p.dir, innerWidth)))
 	b.WriteString("\n\n")
+	if p.naming {
+		b.WriteString("New folder: " + p.input.View())
+		if p.errMsg != "" {
+			b.WriteString("\n" + errStyle.Render(p.errMsg))
+		}
+		b.WriteString("\n\n")
+		sep := helpTextStyle.Render(" · ")
+		b.WriteString(strings.Join([]string{hint("enter", "Create"), hint("esc", "Cancel")}, sep))
+		return b.String()
+	}
 	b.WriteString(p.listView())
 	b.WriteString("\n\n")
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top,

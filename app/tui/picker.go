@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/andresbott/dibs/internal/config"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -41,6 +42,9 @@ func (f *formModel) openPicker() tea.Cmd {
 // (Select confirms, Cancel closes), ←→/a/d switch buttons, tab cycles, esc
 // cancels the picker (same as the list, so it never flips meaning by focus).
 func (f formModel) updatePicker(msg tea.Msg) (formModel, tea.Cmd) {
+	if f.picker.naming {
+		return f, f.picker.updateNewDir(msg)
+	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return f, nil
@@ -61,6 +65,8 @@ func (f formModel) updatePicker(msg tea.Msg) (formModel, tea.Cmd) {
 			f.picker.open()
 		case "a", "left":
 			f.picker.upDir()
+		case "n":
+			return f, f.picker.startNewDir()
 		case "tab":
 			f.picker.focusNext()
 		case "shift+tab":
@@ -101,6 +107,9 @@ func (f formModel) confirmSelection() (formModel, tea.Cmd) {
 	}
 	field := f.focusField()
 	f.inputs[field].SetValue(sel)
+	if field == idxLocal {
+		f.localAuto = false // a browsed Local root is a manual choice; stop prefilling
+	}
 	f.browsing = false
 	return f, f.setFocus(f.inputSlot(field))
 }
@@ -234,6 +243,69 @@ type dirPicker struct {
 	offset  int
 	height  int
 	focus   pickerFocus
+
+	// New-folder flow: naming is true while typing a name into input; errMsg holds
+	// an inline validation / mkdir error. Creating is synchronous (a local mkdir).
+	naming bool
+	input  textinput.Model
+	errMsg string
+}
+
+// startNewDir opens the new-folder name prompt for the currently listed directory.
+func (p *dirPicker) startNewDir() tea.Cmd {
+	in := textinput.New()
+	in.Prompt = ""
+	in.Placeholder = "new folder name"
+	in.CharLimit = 128
+	p.input = in
+	p.errMsg = ""
+	p.naming = true
+	return p.input.Focus()
+}
+
+// updateNewDir drives the new-folder prompt: enter creates, esc returns to the
+// list, everything else edits the name input.
+func (p *dirPicker) updateNewDir(msg tea.Msg) tea.Cmd {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "esc":
+			p.naming = false
+			p.errMsg = ""
+			return nil
+		case "enter":
+			p.createDir()
+			return nil
+		}
+	}
+	var cmd tea.Cmd
+	p.input, cmd = p.input.Update(msg)
+	return cmd
+}
+
+// createDir validates the typed name and creates the folder under the listed
+// directory. An invalid name or a failed mkdir stays on the prompt with an
+// inline error; success re-lists the directory and highlights the new folder.
+// An already-existing directory is treated as success (it is just highlighted).
+func (p *dirPicker) createDir() {
+	name := strings.TrimSpace(p.input.Value())
+	switch {
+	case name == "":
+		p.errMsg = "folder name is required"
+		return
+	case strings.ContainsAny(name, `/\`) || name == "." || name == "..":
+		p.errMsg = "invalid folder name"
+		return
+	}
+	if err := os.Mkdir(filepath.Join(p.dir, name), 0o750); err != nil && !os.IsExist(err) {
+		p.errMsg = err.Error()
+		return
+	}
+	p.naming = false
+	p.errMsg = ""
+	p.entries = readSubdirs(p.dir)
+	p.cursor = indexOf(p.entries, name)
+	p.offset = 0
+	p.ensureVisible()
 }
 
 // focusNext / focusPrev cycle through the picker's three focus stops (list,
@@ -331,7 +403,7 @@ func (p dirPicker) hints() string {
 	if p.focus == focusList {
 		return strings.Join([]string{
 			hint("↑↓", "Move"), hint("enter", "Open"), hint("esc", "Cancel"),
-			hint("space", "Select"), hint("tab", "Buttons"), hint("pgup/pgdn", "Jump"),
+			hint("space", "Select"), hint("n", "New folder"), hint("tab", "Buttons"),
 		}, sep)
 	}
 	return strings.Join([]string{
@@ -356,6 +428,16 @@ func (p dirPicker) view(innerWidth int) string {
 	var b strings.Builder
 	b.WriteString(helpTextStyle.Render(ellipsisLeft(p.dir, innerWidth)))
 	b.WriteString("\n\n")
+	if p.naming {
+		b.WriteString("New folder: " + p.input.View())
+		if p.errMsg != "" {
+			b.WriteString("\n" + errStyle.Render(p.errMsg))
+		}
+		b.WriteString("\n\n")
+		sep := helpTextStyle.Render(" · ")
+		b.WriteString(strings.Join([]string{hint("enter", "Create"), hint("esc", "Cancel")}, sep))
+		return b.String()
+	}
 	b.WriteString(p.listView())
 	b.WriteString("\n\n")
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top,

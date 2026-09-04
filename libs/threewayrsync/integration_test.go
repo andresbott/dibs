@@ -279,6 +279,41 @@ func TestIntegrationDaemonFullCycle(t *testing.T) {
 	}
 }
 
+// TestIntegrationDaemonMakeDir creates directories on a live daemon: a folder at
+// the module root, then a nested one under it, then a no-op re-create.
+func TestIntegrationDaemonMakeDir(t *testing.T) {
+	requireRsync(t)
+	root := t.TempDir()
+	moduleDir := filepath.Join(root, "module")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	port := startDaemon(t, moduleDir)
+	s := tw.New(tw.FileStore{Path: filepath.Join(root, "state", "base.json")})
+	d := tw.Daemon{Host: "127.0.0.1", Port: port, Module: "data"}
+	ctx := context.Background()
+
+	if err := s.MakeDir(ctx, d, "brand"); err != nil {
+		t.Fatalf("MakeDir(brand): %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(moduleDir, "brand")); err != nil || !info.IsDir() {
+		t.Fatalf("brand should exist as a dir: err=%v", err)
+	}
+
+	// A nested folder whose parent now exists.
+	if err := s.MakeDir(ctx, d, "brand/new"); err != nil {
+		t.Fatalf("MakeDir(brand/new): %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(moduleDir, "brand", "new")); err != nil || !info.IsDir() {
+		t.Fatalf("brand/new should exist as a dir: err=%v", err)
+	}
+
+	// Idempotent: re-creating an existing directory is a no-op, not an error.
+	if err := s.MakeDir(ctx, d, "brand/new"); err != nil {
+		t.Fatalf("re-creating brand/new should be a no-op: %v", err)
+	}
+}
+
 // TestIntegrationScopedSyncPreservesBase checks the scope contract end to end: a scoped
 // sync moves only in-scope files, and alternating scoped and full syncs neither loses
 // out-of-scope base entries nor invents phantom changes.

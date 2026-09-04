@@ -146,8 +146,8 @@ func TestListWSNavigation(t *testing.T) {
 // arrows.
 func TestActionsWSNavigation(t *testing.T) {
 	m := newModel("/tmp/x.yaml", testConfig())
-	m.checks["alpha"] = ownLock(m) // 3 actions to navigate
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})     // reveal Actions for "alpha"
+	m.checks["alpha"] = ownLock(m)                   // 3 actions to navigate
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter}) // reveal Actions for "alpha"
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	if m.profile.cursor != 1 {
 		t.Fatalf("want cursor 1 after s, got %d", m.profile.cursor)

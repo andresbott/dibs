@@ -47,12 +47,193 @@ func TestFormHasBrowseButtons(t *testing.T) {
 	}
 }
 
+// TestFormRemoteBeforeLocal: the add/edit form lists the remote type before the
+// Local root, so the remote location is chosen first.
+func TestFormRemoteBeforeLocal(t *testing.T) {
+	f := newForm("", config.Profile{}, nil)
+	f.setWidth(80)
+	view := f.View()
+	remoteAt := strings.Index(view, "Remote type")
+	localAt := strings.Index(view, "Local root")
+	if remoteAt < 0 || localAt < 0 {
+		t.Fatalf("view missing labels: remote=%d local=%d\n%s", remoteAt, localAt, view)
+	}
+	if remoteAt > localAt {
+		t.Errorf("Remote type (%d) should appear before Local root (%d)", remoteAt, localAt)
+	}
+}
+
+// TestAddProfilePrefillsLocalFromDefault: with a client default local root set,
+// opening the add form seeds Local root with the base and it tracks the name live.
+func TestAddProfilePrefillsLocalFromDefault(t *testing.T) {
+	cfg := &config.Config{Profiles: map[string]config.Profile{}, DefaultLocalRoot: "~/dibs"}
+	m := newModel(filepath.Join(t.TempDir(), "config.yaml"), cfg)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if got := m.form.inputs[idxLocal].Value(); got != "~/dibs" {
+		t.Fatalf("on open Local root = %q, want the base ~/dibs (name still empty)", got)
+	}
+	m = typeRunes(t, m, "docs")
+	if got := m.form.inputs[idxLocal].Value(); got != "~/dibs/docs" {
+		t.Fatalf("Local root = %q, want ~/dibs/docs after typing the name", got)
+	}
+}
+
+// TestAddProfileNoPrefillWithoutDefault: without a configured default, Local root
+// stays empty as the name is typed (today's behaviour, feature off).
+func TestAddProfileNoPrefillWithoutDefault(t *testing.T) {
+	cfg := &config.Config{Profiles: map[string]config.Profile{}}
+	m := newModel(filepath.Join(t.TempDir(), "config.yaml"), cfg)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = typeRunes(t, m, "docs")
+	if got := m.form.inputs[idxLocal].Value(); got != "" {
+		t.Fatalf("Local root = %q, want empty with no default configured", got)
+	}
+}
+
+// TestAddProfileLocalEditStopsPrefill: once the user edits Local root, typing more
+// of the name no longer overwrites it.
+func TestAddProfileLocalEditStopsPrefill(t *testing.T) {
+	cfg := &config.Config{Profiles: map[string]config.Profile{}, DefaultLocalRoot: "~/dibs"}
+	m := newModel(filepath.Join(t.TempDir(), "config.yaml"), cfg)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = typeRunes(t, m, "docs") // Local root tracks to ~/dibs/docs
+	m = toInput(t, m, idxLocal)
+	m = typeRunes(t, m, "X") // manual edit → ~/dibs/docsX, tracking off
+	m = toInput(t, m, idxName)
+	m = typeRunes(t, m, "2") // name is now docs2
+	if got := m.form.inputs[idxLocal].Value(); got != "~/dibs/docsX" {
+		t.Fatalf("Local root = %q, want ~/dibs/docsX (a manual edit stops the prefill)", got)
+	}
+}
+
+// TestEditProfileDoesNotPrefillLocal: editing an existing profile never re-seeds
+// Local root — the stored value stands, tracking stays off.
+func TestEditProfileDoesNotPrefillLocal(t *testing.T) {
+	f := newForm("photos", config.Profile{LocalRoot: "/existing", RemoteRoot: "/r"}, nil)
+	f.setDefaultLocalRoot("~/dibs")
+	if f.localAuto {
+		t.Error("editing an existing profile must not enable the local prefill")
+	}
+	if got := f.inputs[idxLocal].Value(); got != "/existing" {
+		t.Errorf("Local root = %q, want the stored /existing untouched", got)
+	}
+}
+
+// TestFormBrowseLocalStopsPrefill: choosing Local root via the directory picker is
+// a manual choice, so it turns the prefill off.
+func TestFormBrowseLocalStopsPrefill(t *testing.T) {
+	f := newForm("", config.Profile{}, nil)
+	f.setDefaultLocalRoot("~/dibs")
+	if !f.localAuto {
+		t.Fatal("a new profile with a default should start with the prefill on")
+	}
+	f.setFocus(f.inputSlot(idxLocal))
+	f.picker = dirPicker{dir: "/picked"} // no entries → selection is the current dir
+	f, _ = f.confirmSelection()
+	if f.localAuto {
+		t.Error("browsing the Local root should stop the prefill")
+	}
+	if got := f.inputs[idxLocal].Value(); got != "/picked" {
+		t.Errorf("Local root = %q, want the browsed /picked", got)
+	}
+}
+
+// TestRemoteSelectFillsEmptyNameAndLocal: choosing an rsync module path on a new
+// profile whose Name is empty fills the Name from the path's last segment and,
+// with a default local root set, retargets Local root to match.
+func TestRemoteSelectFillsEmptyNameAndLocal(t *testing.T) {
+	f := newForm("", config.Profile{}, nil)
+	f.setDefaultLocalRoot("~/dibs")
+	f.remote = remotePicker{phase: rpModules, module: "music"} // picked the "music" module
+	f, _ = f.confirmRemoteSelection()
+	if got := f.inputs[idxName].Value(); got != "music" {
+		t.Errorf("Name = %q, want music (derived from the module path)", got)
+	}
+	if got := f.inputs[idxLocal].Value(); got != "~/dibs/music" {
+		t.Errorf("Local root = %q, want ~/dibs/music", got)
+	}
+}
+
+// TestRemoteSelectNameFromNestedPath: the derived Name is the last path segment,
+// not the whole module path.
+func TestRemoteSelectNameFromNestedPath(t *testing.T) {
+	f := newForm("", config.Profile{}, nil)
+	f.setDefaultLocalRoot("~/dibs")
+	f.remote = remotePicker{phase: rpDirs, module: "data", path: "albums/live"}
+	f, _ = f.confirmRemoteSelection()
+	if got := f.inputs[idxName].Value(); got != "live" {
+		t.Errorf("Name = %q, want live (the last segment of data/albums/live)", got)
+	}
+	if got := f.inputs[idxLocal].Value(); got != "~/dibs/live" {
+		t.Errorf("Local root = %q, want ~/dibs/live", got)
+	}
+}
+
+// TestRemoteSelectDoesNotOverrideTypedName: a Name the user already entered is
+// never overwritten by choosing a module path (and Local root is left alone).
+func TestRemoteSelectDoesNotOverrideTypedName(t *testing.T) {
+	f := newForm("", config.Profile{}, nil)
+	f.setDefaultLocalRoot("~/dibs")
+	f.inputs[idxName].SetValue("keep")
+	f.inputs[idxLocal].SetValue("/my/local")
+	f.remote = remotePicker{phase: rpModules, module: "music"}
+	f, _ = f.confirmRemoteSelection()
+	if got := f.inputs[idxName].Value(); got != "keep" {
+		t.Errorf("Name = %q, want keep (a typed name must not be overwritten)", got)
+	}
+	if got := f.inputs[idxLocal].Value(); got != "/my/local" {
+		t.Errorf("Local root = %q, want /my/local untouched", got)
+	}
+}
+
+// TestRemoteSelectNoDefaultBaseFillsNameOnly: without a default local root, the
+// Name is still derived but Local root stays empty (no base to build on).
+func TestRemoteSelectNoDefaultBaseFillsNameOnly(t *testing.T) {
+	f := newForm("", config.Profile{}, nil) // no setDefaultLocalRoot → no base
+	f.remote = remotePicker{phase: rpModules, module: "music"}
+	f, _ = f.confirmRemoteSelection()
+	if got := f.inputs[idxName].Value(); got != "music" {
+		t.Errorf("Name = %q, want music", got)
+	}
+	if got := strings.TrimSpace(f.inputs[idxLocal].Value()); got != "" {
+		t.Errorf("Local root = %q, want empty (no default base)", got)
+	}
+}
+
+// TestModulePathPasteFillsEmptyName: typing/pasting a module path (routed through
+// onInputChanged) fills an empty Name just like the picker does.
+func TestModulePathPasteFillsEmptyName(t *testing.T) {
+	f := newForm("", config.Profile{}, nil)
+	f.setDefaultLocalRoot("~/dibs")
+	f.inputs[idxModulePath].SetValue("data/photos")
+	f.onInputChanged(idxModulePath, "data/photos")
+	if got := f.inputs[idxName].Value(); got != "photos" {
+		t.Errorf("Name = %q, want photos", got)
+	}
+	if got := f.inputs[idxLocal].Value(); got != "~/dibs/photos" {
+		t.Errorf("Local root = %q, want ~/dibs/photos", got)
+	}
+}
+
+// TestEditProfileModulePathDoesNotFillName: editing an existing profile never
+// auto-fills the Name from the module path.
+func TestEditProfileModulePathDoesNotFillName(t *testing.T) {
+	f := newForm("existing", config.Profile{Server: "nas", RemoteModule: "data"}, nil)
+	f.inputs[idxName].SetValue("")
+	f.inputs[idxModulePath].SetValue("data/photos")
+	f.onInputChanged(idxModulePath, "data/photos")
+	if got := f.inputs[idxName].Value(); got != "" {
+		t.Errorf("Name = %q, want empty (editing must not auto-fill)", got)
+	}
+}
+
 func TestFormDownUpColumn0IncludesSave(t *testing.T) {
 	m := openAddForm(t) // Name input (slot 0)
-	// Down descends the left column: Name → Local input → remote-type selector →
-	// Remote input → Add subpath → the two default ignore inputs → Add ignore →
-	// Save → wrap. (A fresh add form seeds the default ignore rows.)
-	for i, want := range []int{1, 3, 4, 6, 7, 9, 11, 12, 0} {
+	// Down descends the left column: Name → remote-type selector → Remote input →
+	// Local input → Add subpath → the two default ignore inputs → Add ignore →
+	// Save → wrap. (A fresh add form seeds the default ignore rows; remote precedes
+	// local in the field order.)
+	for i, want := range []int{1, 2, 4, 6, 7, 9, 11, 12, 0} {
 		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 		if m.form.focus != want {
 			t.Fatalf("down #%d: focus = %d, want %d", i+1, m.form.focus, want)
@@ -65,24 +246,21 @@ func TestFormDownUpColumn0IncludesSave(t *testing.T) {
 	}
 }
 
-func TestFormDownFromRemoteBrowseFallsToColumn0(t *testing.T) {
+func TestFormDownFromLocalBrowseFallsToColumn0(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Local input (empty ⇒ cursor at end)
+	// Reach the Local Browse button (the last root field's button).
+	m = toInput(t, m, idxLocal)                      // Local input (empty ⇒ cursor at end)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Local Browse
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // selector row has no right cell → falls to it
-	if m.form.focusKind() != slotTypeSel {
-		t.Fatalf("setup: down from Local Browse should fall to the type selector, got slot %d", m.form.focus)
+	if m.form.focusKind() != slotButton || m.form.focusField() != idxLocal {
+		t.Fatalf("setup: want Local Browse, got slot %d", m.form.focus)
 	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Remote input row (col 0)
-	if m.form.focusKind() != slotInput || m.form.focusField() != idxRemotePath {
-		t.Fatalf("setup: want the Remote input, got slot %d", m.form.focus)
-	}
-	// Down then descends column 0: Add subpath, the default ignore rows' inputs,
-	// Add ignore, and lands on Save.
+	// The Add-subpath row below has no right cell → Down falls to column 0.
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	if m.form.focusKind() != slotAdd {
-		t.Fatalf("down from the Remote input should reach Add subpath, got slot %d", m.form.focus)
+		t.Fatalf("down from Local Browse should fall to Add subpath, got slot %d", m.form.focus)
 	}
+	// Down then descends column 0: the default ignore rows' inputs, Add ignore, and
+	// lands on Save.
 	for range 4 { // two ignore inputs, Add ignore, then the action row
 		m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	}
@@ -91,35 +269,35 @@ func TestFormDownFromRemoteBrowseFallsToColumn0(t *testing.T) {
 	}
 }
 
-func TestFormUpFromFirstBrowseGoesToName(t *testing.T) {
+func TestFormUpFromRemoteBrowseFallsToTypeSel(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Local input (empty ⇒ cursor at end)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Local Browse (the first Browse)
-	if m.form.focusKind() != slotButton || m.form.focusField() != 1 {
-		t.Fatalf("setup: want Local Browse, got slot %d", m.form.focus)
+	m = toInput(t, m, idxRemotePath)                 // Remote input (empty ⇒ cursor at end)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Remote Browse (the first/topmost Browse)
+	if m.form.focusKind() != slotButton || m.form.focusField() != idxRemotePath {
+		t.Fatalf("setup: want Remote Browse, got slot %d", m.form.focus)
 	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp}) // → Name (the row above has no right cell)
-	if m.form.focus != 0 {
-		t.Fatalf("up from Local Browse should focus Name (slot 0), got slot %d", m.form.focus)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp}) // → type selector (the row above has no right cell)
+	if m.form.focusKind() != slotTypeSel {
+		t.Fatalf("up from Remote Browse should fall to the type selector, got slot %d", m.form.focus)
 	}
 }
 
 func TestFormRightLeftReachButton(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Local input (empty ⇒ cursor at end)
+	m = toInput(t, m, idxLocal)                      // Local input (empty ⇒ cursor at end)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // step onto the Browse button
-	if !m.form.currentIsButton() || m.form.focusField() != 1 {
+	if !m.form.currentIsButton() || m.form.focusField() != idxLocal {
 		t.Fatalf("right at end of Local input should focus its Browse button, got focus %d", m.form.focus)
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft}) // back to the input
-	if m.form.currentIsButton() || m.form.focus != m.form.inputSlot(1) {
+	if m.form.currentIsButton() || m.form.focus != m.form.inputSlot(idxLocal) {
 		t.Fatalf("left from the button should return to the Local input, got focus %d", m.form.focus)
 	}
 }
 
 func TestFormRightMovesCursorUntilEnd(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Local input
+	m = toInput(t, m, idxLocal)                     // Local input
 	m = typeRunes(t, m, "abc")                      // cursor at end
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyLeft}) // cursor ← (editing, not a jump)
 	if m.form.currentIsButton() {
@@ -145,24 +323,21 @@ func TestFormRightOnNameStaysPut(t *testing.T) {
 
 func TestFormDownUpStaysInButtonColumn(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Local input
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Local Browse button
-	if !m.form.currentIsButton() || m.form.focusField() != idxLocal {
-		t.Fatalf("setup: want Local Browse button, got focus %d", m.form.focus)
-	}
-	// The selector row below has no button cell, so Down falls to column 0; two
-	// Downs later, Right reaches the Remote row's Browse button.
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // type selector (col 0 fallback)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Remote input
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	m = toInput(t, m, idxRemotePath)                 // Remote input
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // Remote Browse button
 	if !m.form.currentIsButton() || m.form.focusField() != idxRemotePath {
-		t.Fatalf("want Remote Browse button, got focus %d (button=%v)", m.form.focus, m.form.currentIsButton())
+		t.Fatalf("setup: want Remote Browse button, got focus %d", m.form.focus)
 	}
-	// Up from Remote Browse: the selector row above has no button cell either,
-	// so focus falls back to column 0 (the selector).
+	// The Local row directly below also has a button cell, so Down stays in the
+	// button column (Remote Browse → Local Browse).
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if !m.form.currentIsButton() || m.form.focusField() != idxLocal {
+		t.Fatalf("down from Remote Browse should stay on the Local Browse button, got focus %d", m.form.focus)
+	}
+	// And Up returns to the Remote Browse button, still in the button column.
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})
-	if m.form.focusKind() != slotTypeSel {
-		t.Fatalf("up from Remote Browse should fall to the type selector, got focus %d", m.form.focus)
+	if !m.form.currentIsButton() || m.form.focusField() != idxRemotePath {
+		t.Fatalf("up from Local Browse should return to the Remote Browse button, got focus %d", m.form.focus)
 	}
 }
 
@@ -224,11 +399,10 @@ func TestSaveButtonSubmits(t *testing.T) {
 	m := newModel(p, &config.Config{Profiles: map[string]config.Profile{}})
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = typeRunes(t, m, "photos")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // remote-type selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Remote input
+	m = toInput(t, m, idxRemotePath)
 	m = typeRunes(t, m, "/mnt/nas/pics")
+	m = toInput(t, m, idxLocal)
+	m = typeRunes(t, m, "/home/me/pics")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)
 	if m.mode != modeMain {
@@ -265,11 +439,10 @@ func TestFormEnterActivatesSave(t *testing.T) {
 	m := newModel(p, &config.Config{Profiles: map[string]config.Profile{}})
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = typeRunes(t, m, "photos")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // remote-type selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // Remote input
+	m = toInput(t, m, idxRemotePath)
 	m = typeRunes(t, m, "/mnt/nas/pics")
+	m = toInput(t, m, idxLocal)
+	m = typeRunes(t, m, "/home/me/pics")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.mode != modeMain {
@@ -304,9 +477,9 @@ func TestFormEnterOnCancelReturnsToMain(t *testing.T) {
 // mirroring TestBrowseButtonOpensPicker's space case.
 func TestFormEnterOnBrowseOpensPicker(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})   // Local input (slot 1)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → Local Browse button (slot 2)
-	if !m.form.currentIsButton() || m.form.focusField() != 1 {
+	m = toInput(t, m, idxLocal)                      // Local input
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → Local Browse button
+	if !m.form.currentIsButton() || m.form.focusField() != idxLocal {
 		t.Fatalf("want focus on the Local Browse button, got focus %d", m.form.focus)
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
@@ -344,6 +517,21 @@ func typeRunes(t *testing.T, m model, s string) model {
 	return update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
 }
 
+// toInput Tabs until the given fixed input index is focused (bounded so a wiring
+// bug fails instead of hanging). Order-agnostic, so tests reach a field without
+// hardcoding the form's row layout.
+func toInput(t *testing.T, m model, field int) model {
+	t.Helper()
+	for i := 0; i <= len(m.form.slots()); i++ {
+		if m.form.focusKind() == slotInput && m.form.focusField() == field {
+			return m
+		}
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	}
+	t.Fatalf("never focused input field %d via Tab", field)
+	return m
+}
+
 func TestAddProfilePersists(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.yaml")
 	m := newModel(p, &config.Config{Profiles: map[string]config.Profile{}})
@@ -353,11 +541,10 @@ func TestAddProfilePersists(t *testing.T) {
 		t.Fatalf("want modeForm, got %d", m.mode)
 	}
 	m = typeRunes(t, m, "photos")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Local input
-	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → remote-type selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Remote input
+	m = toInput(t, m, idxRemotePath)
 	m = typeRunes(t, m, "/mnt/nas/pics")
+	m = toInput(t, m, idxLocal)
+	m = typeRunes(t, m, "/home/me/pics")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey) // submit
 
@@ -812,11 +999,10 @@ func TestAddProfileSaveFailureKeepsFormAndEdits(t *testing.T) {
 
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}) // open add form
 	m = typeRunes(t, m, "photos")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Local input
-	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → remote-type selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown}) // → Remote input
+	m = toInput(t, m, idxRemotePath)
 	m = typeRunes(t, m, "/mnt/nas/pics")
+	m = toInput(t, m, idxLocal)
+	m = typeRunes(t, m, "/home/me/pics")
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey) // submit; save should fail
 
@@ -986,15 +1172,15 @@ func TestTypeSelectorCyclesKinds(t *testing.T) {
 // switch away and back — the inputs always exist, only their exposure changes.
 func TestTypeSwitchPreservesTypedValues(t *testing.T) {
 	m := tabToTypeSel(t, openAddForm(t))
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})               // → server selector (or module if no servers)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})               // → module path input
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // → server selector (or module if no servers)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // → module path input
 	m = typeRunes(t, m, "docs")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})                 // back up
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp})                 // back to selector
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp}) // back up
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyUp}) // back to selector
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // ssh → Local
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})              // → rsync again
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // ssh → Local
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync again
 	if got := m.form.inputs[idxModulePath].Value(); got != "docs" {
 		t.Fatalf("module path input = %q, want docs preserved across kind switches", got)
 	}
@@ -1030,12 +1216,11 @@ func TestSaveRsyncProfilePersists(t *testing.T) {
 	m := newModel(p, cfg)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = typeRunes(t, m, "photos")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // remote-type selector
+	m.form.inputs[idxLocal].SetValue("/home/me/pics")
+	m = tabToTypeSel(t, m)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // server selector
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → nas
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // server selector (nas row)
+	m = update(t, m, spaceKey)                       // select nas
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // Module/path
 	m = typeRunes(t, m, "mod/photos")
 	m = tabToKind(t, m, slotSave)
@@ -1068,9 +1253,8 @@ func TestSaveRsyncMissingServerBlocked(t *testing.T) {
 	m := newModel(pth, cfg)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = typeRunes(t, m, "photos")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
-	m = typeRunes(t, m, "/home/me/pics")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // selector
+	m.form.inputs[idxLocal].SetValue("/home/me/pics")
+	m = tabToTypeSel(t, m)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → rsync (server not selected)
 	m = tabToKind(t, m, slotSave)
 	m = update(t, m, spaceKey)

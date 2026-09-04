@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -38,17 +39,22 @@ const (
 // kindLabels are the selector's option labels, indexed by remoteKind.
 var kindLabels = [numKinds]string{"Local", "rsync", "ssh"}
 
+// maxInlineServers is the largest server count shown as an inline radio list in
+// the rsync Server row. Above it, the row collapses to a single line that opens
+// the server picker modal (serverpicker.go) so a long list doesn't crowd the form.
+const maxInlineServers = 4
+
 // The fixed inputs. All of them always exist so switching the remote type never
 // loses typed values; slots() exposes only the selected kind's fields.
 // inputs[numFixed : numFixed+numSubs] are the subpath fields and
 // inputs[numFixed+numSubs:] the ignore-pattern fields.
 const (
-	idxName       = iota // profile name
-	idxLocal             // local root path
-	idxRemotePath        // kind Local: remote root path (a mounted share)
-	idxSSHURL            // kind ssh: ssh://[user@]host[:port]/abs/path
-	idxSSHIdentity       // kind ssh: identity file for ssh -i
-	idxModulePath        // kind rsync: "module[/path]", typed or browsed
+	idxName        = iota // profile name
+	idxLocal              // local root path
+	idxRemotePath         // kind Local: remote root path (a mounted share)
+	idxSSHURL             // kind ssh: ssh://[user@]host[:port]/abs/path
+	idxSSHIdentity        // kind ssh: identity file for ssh -i
+	idxModulePath         // kind rsync: "module[/path]", typed or browsed
 	numFixed
 )
 
@@ -64,24 +70,33 @@ type focusSlot struct {
 
 // slots is the Tab order (and the grid), built per call because the subpath and
 // ignore sections grow and shrink, and the remote fields swap with the selected
-// remote type: Name, Local root, the remote-type selector row, (for rsync: the
-// server selector row), the selected kind's remote fields, one row per subpath
-// (input + Remove), the Add-subpath button, one row per ignore pattern (input +
-// Remove), the Add-ignore button, and the Save/Cancel action row. Every row has
-// a column-0 cell, so Down/Up can always fall back to column 0 when a row lacks
-// column 1.
+// remote type: Name, the remote-type selector row, (for rsync: the server
+// selector row), the selected kind's remote fields, Local root (input + Browse) —
+// remote before local so the location is chosen first and Local root can be
+// prefilled from it — one row per subpath (input + Remove), the Add-subpath
+// button, one row per ignore pattern (input + Remove), the Add-ignore button, and
+// the Save/Cancel action row. Every row has a column-0 cell, so Down/Up can always
+// fall back to column 0 when a row lacks column 1.
 func (f formModel) slots() []focusSlot {
 	s := []focusSlot{
-		{slotInput, idxName, 0, 0},   // Name
-		{slotInput, idxLocal, 1, 0},  // Local root input
-		{slotButton, idxLocal, 1, 1}, // Local Browse
-		{slotTypeSel, -1, 2, 0},      // remote-type radio row
+		{slotInput, idxName, 0, 0}, // Name
+		{slotTypeSel, -1, 1, 0},    // remote-type radio row
 	}
-	row := 3
-	// For rsync kind, add the server selector row before the remote fields.
+	row := 2
+	// For rsync kind, add the server selector before the remote fields. With a
+	// handful of servers it's an inline radio list — one navigable row per server
+	// (field = the server index). With none, or more than fit inline, it's a
+	// single row (field -1): the no-servers hint, or the modal-opening trigger.
 	if f.kind == remoteRsync {
-		s = append(s, focusSlot{slotServerSel, -1, row, 0})
-		row++
+		if n := len(f.serverNames); n > 0 && n <= maxInlineServers {
+			for i := range f.serverNames {
+				s = append(s, focusSlot{slotServerSel, i, row, 0})
+				row++
+			}
+		} else {
+			s = append(s, focusSlot{slotServerSel, -1, row, 0})
+			row++
+		}
 	}
 	for _, i := range f.remoteFields() {
 		s = append(s, focusSlot{slotInput, i, row, 0})
@@ -90,6 +105,9 @@ func (f formModel) slots() []focusSlot {
 		}
 		row++
 	}
+	// Local root sits after the remote fields (input + Browse).
+	s = append(s, focusSlot{slotInput, idxLocal, row, 0}, focusSlot{slotButton, idxLocal, row, 1})
+	row++
 	for i := numFixed; i < numFixed+f.numSubs; i++ {
 		s = append(s, focusSlot{slotInput, i, row, 0}, focusSlot{slotRemove, i, row, 1})
 		row++
@@ -188,7 +206,7 @@ func (f formModel) slotAt(row, col int) int {
 
 type formModel struct {
 	inputs      []textinput.Model
-	numSubs     int    // count of subpath inputs; see the numFixed layout comment
+	numSubs     int // count of subpath inputs; see the numFixed layout comment
 	focus       int
 	origName    string // "" for add; the existing name for edit
 	err         string
@@ -201,6 +219,20 @@ type formModel struct {
 	serverNames []string // sorted keys of servers
 	serverSel   int      // index into serverNames, -1 when none selected
 
+	// Server picker modal — used only when more servers are configured than fit
+	// as an inline radio list (see maxInlineServers / serverSelIsModal).
+	serverPick     serverPicker
+	browsingServer bool // true while the server picker modal is open
+
+	// defaultLocalRoot is the client's configured base for new profiles' local
+	// roots (Config.DefaultLocalRoot); "" disables the Local-root prefill.
+	defaultLocalRoot string
+	// localAuto is true while Local root should track SuggestLocalRoot(defaultLocalRoot,
+	// name) as the Name is typed — enabled only for a new profile with a default set
+	// (see setDefaultLocalRoot), and switched off the moment the user edits or browses
+	// Local root themselves.
+	localAuto bool
+
 	// Remote (rsync daemon) browsing state — see remotepicker.go.
 	rsyncBin       string       // rsync binary override for the browse listings
 	remote         remotePicker // the module/path browser modal
@@ -208,6 +240,7 @@ type formModel struct {
 	browseSeq      int          // stamp matching in-flight listings to the open browser
 	listModules    moduleLister // test seam; nil => a Syncer-backed lister
 	listDirs       dirLister    // test seam; nil => a Syncer-backed lister
+	makeDir        dirMaker     // test seam; nil => a Syncer-backed maker
 }
 
 // newInput builds a textinput with the form's shared styling: no "> " prompt
@@ -236,9 +269,9 @@ func newForm(origName string, p config.Profile, servers map[string]config.Server
 	inputs[idxSSHIdentity].SetValue(p.SSHIdentityFile)
 
 	f := formModel{
-		inputs:   inputs,
-		numSubs:  len(p.Subpaths),
-		origName: origName,
+		inputs:    inputs,
+		numSubs:   len(p.Subpaths),
+		origName:  origName,
 		serverSel: -1,
 	}
 	f.setServers(servers)
@@ -259,6 +292,19 @@ func newForm(origName string, p config.Profile, servers map[string]config.Server
 	return f
 }
 
+// setDefaultLocalRoot enables live Local-root prefill for a new profile: while
+// the Name is typed, Local root tracks <base>/<name> (SuggestLocalRoot) until the
+// user edits or browses Local root. A no-op for an edit (origName set), an empty
+// base, or a profile that already carries a Local root.
+func (f *formModel) setDefaultLocalRoot(base string) {
+	f.defaultLocalRoot = base
+	if f.origName == "" && strings.TrimSpace(base) != "" && strings.TrimSpace(f.inputs[idxLocal].Value()) == "" {
+		f.localAuto = true
+		f.inputs[idxLocal].SetValue(config.SuggestLocalRoot(base, f.inputs[idxName].Value()))
+		f.inputs[idxLocal].CursorEnd()
+	}
+}
+
 // setServers stores the servers map and builds the sorted serverNames list.
 func (f *formModel) setServers(servers map[string]config.Server) {
 	f.servers = servers
@@ -267,6 +313,22 @@ func (f *formModel) setServers(servers map[string]config.Server) {
 		f.serverNames = append(f.serverNames, name)
 	}
 	sort.Strings(f.serverNames)
+}
+
+// serverSelIsModal reports whether the rsync Server row opens a picker modal
+// (more servers configured than fit as an inline radio list) rather than
+// listing them inline.
+func (f formModel) serverSelIsModal() bool { return len(f.serverNames) > maxInlineServers }
+
+// serverSlot returns the slot index of the (single, modal-opening) rsync Server
+// row, used to restore focus after the picker closes. Falls back to 0.
+func (f formModel) serverSlot() int {
+	for i, s := range f.slots() {
+		if s.kind == slotServerSel {
+			return i
+		}
+	}
+	return 0
 }
 
 // selectServer sets serverSel to the index of the named server, or -1 if not found.
@@ -464,16 +526,13 @@ func (f *formModel) navKey(key string) (cmd tea.Cmd, ok bool) {
 	case "up":
 		return f.focusPrevField(), true
 	case "right":
-		// On the type selector → next kind; on the server selector → next server;
-		// on Save → Cancel; on a path/subpath input with the cursor at the end →
-		// its Browse/Remove button; otherwise not a nav key (let the input move
-		// its cursor).
+		// On the type selector → next kind; on Save → Cancel; on a path/subpath
+		// input with the cursor at the end → its Browse/Remove button; otherwise
+		// not a nav key (let the input move its cursor). The server selector uses
+		// ↑/↓ to move between servers (the grid) and enter/space to pick one, so
+		// ←/→ carry no meaning there.
 		if f.focusKind() == slotTypeSel {
 			f.cycleKind(1)
-			return nil, true
-		}
-		if f.focusKind() == slotServerSel {
-			f.cycleServer(1)
 			return nil, true
 		}
 		if f.focusKind() == slotSave {
@@ -483,15 +542,11 @@ func (f *formModel) navKey(key string) (cmd tea.Cmd, ok bool) {
 			return f.setFocus(f.buttonSlot(f.focusField())), true
 		}
 	case "left":
-		// On the type selector → previous kind; on the server selector → previous
-		// server; on Cancel → Save; on a Browse/Remove button → its input;
-		// otherwise not a nav key (let the input move its cursor).
+		// On the type selector → previous kind; on Cancel → Save; on a
+		// Browse/Remove button → its input; otherwise not a nav key (let the input
+		// move its cursor). The server selector ignores ←/→ (see "right" above).
 		if f.focusKind() == slotTypeSel {
 			f.cycleKind(-1)
-			return nil, true
-		}
-		if f.focusKind() == slotServerSel {
-			f.cycleServer(-1)
 			return nil, true
 		}
 		if f.focusKind() == slotCancel {
@@ -508,10 +563,62 @@ func (f formModel) updateInputs(msg tea.Msg) (formModel, tea.Cmd) {
 	if f.focusKind() != slotInput {
 		return f, nil // only text inputs consume keystrokes (buttons are inert)
 	}
-	var cmd tea.Cmd
 	field := f.focusField()
+	before := f.inputs[field].Value()
+	var cmd tea.Cmd
 	f.inputs[field], cmd = f.inputs[field].Update(msg)
+	if after := f.inputs[field].Value(); after != before {
+		f.onInputChanged(field, after)
+	}
 	return f, cmd
+}
+
+// onInputChanged keeps the Local-root prefill in sync with the edit just made:
+// while localAuto is on, editing the Name retargets Local root to
+// SuggestLocalRoot(base, name); editing Local root directly turns tracking off so
+// the user's own value stands.
+func (f *formModel) onInputChanged(field int, value string) {
+	switch {
+	case field == idxLocal:
+		f.localAuto = false
+	case field == idxName && f.localAuto:
+		f.inputs[idxLocal].SetValue(config.SuggestLocalRoot(f.defaultLocalRoot, value))
+		f.inputs[idxLocal].CursorEnd() // keep the cursor trailing so a later edit appends
+	case field == idxModulePath:
+		f.fillFromModulePath()
+	}
+}
+
+// fillFromModulePath, for a new profile whose Name is still empty, derives the
+// Name from the chosen rsync module path's last segment and (when Local-root
+// prefill is still active) retargets Local root to match. It is called whenever
+// the module path is set — via the remote picker or by typing/pasting — so
+// picking a folder seeds a whole profile. It never touches a Name the user has
+// already entered, nor anything on an edit (origName set).
+func (f *formModel) fillFromModulePath() {
+	if f.origName != "" {
+		return // editing an existing profile: never auto-fill
+	}
+	if strings.TrimSpace(f.inputs[idxName].Value()) != "" {
+		return // a typed name stands
+	}
+	mp := strings.Trim(strings.TrimSpace(f.inputs[idxModulePath].Value()), "/")
+	if mp == "" {
+		return
+	}
+	name := mp
+	if i := strings.LastIndex(mp, "/"); i >= 0 {
+		name = mp[i+1:] // the deepest folder name
+	}
+	if name == "" {
+		return
+	}
+	f.inputs[idxName].SetValue(name)
+	f.inputs[idxName].CursorEnd()
+	if f.localAuto {
+		f.inputs[idxLocal].SetValue(config.SuggestLocalRoot(f.defaultLocalRoot, name))
+		f.inputs[idxLocal].CursorEnd()
+	}
 }
 
 // values composes the profile from the selected kind's fields: only that
@@ -548,6 +655,9 @@ func (f formModel) View() string {
 	if f.browsingRemote {
 		return f.remotePickerView()
 	}
+	if f.browsingServer {
+		return f.serverPickerView()
+	}
 	title := "Add profile"
 	if f.origName != "" {
 		title = "Edit profile: " + f.origName
@@ -569,11 +679,10 @@ func (f formModel) View() string {
 	// subpaths, and the ignored files.
 	writeField(idxName)
 	content.WriteString(f.sectionHeader("Root dirs", false))
-	writeField(idxLocal)
 
 	// Remote-type selector row, then (for rsync) the server selector row, then
-	// the selected kind's fields.
-	content.WriteString("\n")
+	// the selected kind's fields — the remote location is chosen first so Local
+	// root (below) can be prefilled from it.
 	label := labelStyle
 	if f.focusKind() == slotTypeSel {
 		label = focusLabelStyle
@@ -598,6 +707,11 @@ func (f formModel) View() string {
 		content.WriteString("\n")
 		writeField(i)
 	}
+
+	// Local root last in the Root dirs group, so a new profile's remote is picked
+	// before the local side it may be prefilled against.
+	content.WriteString("\n")
+	writeField(idxLocal)
 
 	// Subpaths section: one input+Remove row per subpath and the Add-subpath
 	// button; its title lives in the section header, highlighted while any of
@@ -695,25 +809,6 @@ func (f *formModel) cycleKind(dir int) {
 	}
 }
 
-// cycleServer steps the server selector by dir (+1 / -1), wrapping.
-func (f *formModel) cycleServer(dir int) {
-	if len(f.serverNames) == 0 {
-		f.serverSel = -1
-		return
-	}
-	if f.serverSel < 0 {
-		// No selection yet: start at first (forward) or last (backward)
-		if dir > 0 {
-			f.serverSel = 0
-		} else {
-			f.serverSel = len(f.serverNames) - 1
-		}
-		return
-	}
-	n := len(f.serverNames)
-	f.serverSel = (f.serverSel + dir + n) % n
-}
-
 // typeSelRow renders the remote-type radio row: one (•)/( ) option per kind,
 // the selected one marked, the whole row accented while the selector is focused.
 func (f formModel) typeSelRow() string {
@@ -737,26 +832,59 @@ func (f formModel) typeSelRow() string {
 	return strings.Join(opts, "   ")
 }
 
-// serverSelRow renders the server selector row: cycles through available servers
-// or shows a hint when none exist. Accented while focused.
+// serverSelRow renders the rsync Server selector body: a hint when no servers
+// exist, an inline vertical radio list of up to maxInlineServers, or a single
+// collapsed row that opens the picker modal when there are more.
 func (f formModel) serverSelRow() string {
-	focused := f.focusKind() == slotServerSel
 	if len(f.serverNames) == 0 {
 		msg := "(no servers — press v on the main view to add one)"
-		if focused {
+		if f.focusKind() == slotServerSel {
 			return lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render(msg)
 		}
 		return helpTextStyle.Render(msg)
 	}
-	sel := "(none)"
+	if f.serverSelIsModal() {
+		return f.serverSelModalRow()
+	}
+	lines := make([]string, len(f.serverNames))
+	for i, name := range f.serverNames {
+		lines[i] = f.serverRadioLine(i, name)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// serverRadioLine renders one inline server option "(•)/( ) name": accent+bold
+// on the focused row, plain when selected-but-unfocused, dim otherwise.
+func (f formModel) serverRadioLine(i int, name string) string {
+	mark := "( )"
+	if i == f.serverSel {
+		mark = "(•)"
+	}
+	opt := mark + " " + name
+	switch {
+	case f.focusKind() == slotServerSel && f.focusField() == i:
+		return lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render(opt)
+	case i == f.serverSel:
+		return opt
+	default:
+		return lipgloss.NewStyle().Foreground(colDim).Render(opt)
+	}
+}
+
+// serverSelModalRow renders the collapsed Server row shown when the list spills
+// into the picker modal: the current selection as a radio, plus a hint that
+// enter opens the chooser. Accented while focused.
+func (f formModel) serverSelModalRow() string {
+	sel, mark := "(none)", "( )"
 	if f.serverSel >= 0 && f.serverSel < len(f.serverNames) {
-		sel = f.serverNames[f.serverSel]
+		sel, mark = f.serverNames[f.serverSel], "(•)"
 	}
-	st := lipgloss.NewStyle().Foreground(colDim)
-	if focused {
-		st = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+	line := mark + " " + sel
+	tip := helpTextStyle.Render(fmt.Sprintf("   [ %d servers — enter to choose ]", len(f.serverNames)))
+	if f.focusKind() == slotServerSel {
+		return lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render(line) + tip
 	}
-	return st.Render("< " + sel + " >")
+	return line + tip
 }
 
 // fieldWidth is the display width of input i's underline. Fields with an inline

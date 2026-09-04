@@ -197,7 +197,15 @@ func (m *model) resize(ws tea.WindowSizeMsg) {
 		m.form.remote.height = m.form.pickerHeight()
 		m.form.remote.ensureVisible()
 	}
+	if m.form.browsingServer {
+		m.form.serverPick.height = m.form.pickerHeight()
+		m.form.serverPick.ensureVisible()
+	}
 	m.settings.setWidth(ws.Width)
+	m.settings.termHeight = ws.Height
+	if m.settings.browsing {
+		m.settings.picker.setHeight(m.settings.pickerHeight())
+	}
 	m.serverForm.setWidth(ws.Width)
 }
 
@@ -369,6 +377,7 @@ func (m model) openForm(origName string, p config.Profile) (tea.Model, tea.Cmd) 
 	m.form.setWidth(m.width)
 	m.form.termHeight = m.height
 	m.form.rsyncBin = m.cfg.RsyncPath
+	m.form.setDefaultLocalRoot(m.cfg.DefaultLocalRoot)
 	m.mode = modeForm
 	return m, textinput.Blink
 }
@@ -376,6 +385,7 @@ func (m model) openForm(origName string, p config.Profile) (tea.Model, tea.Cmd) 
 func (m model) openSettings() (tea.Model, tea.Cmd) {
 	m.settings = newSettings(m.cfg)
 	m.settings.setWidth(m.width)
+	m.settings.termHeight = m.height
 	m.mode = modeSettings
 	return m, textinput.Blink
 }
@@ -385,12 +395,18 @@ func (m model) openSettings() (tea.Model, tea.Cmd) {
 // enter/space to activate, and typing into the focused input. Mirrors
 // updateForm's key handling.
 func (m model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.settings.browsing {
+		var cmd tea.Cmd
+		m.settings, cmd = m.settings.updatePicker(msg)
+		return m, cmd
+	}
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		var cmd tea.Cmd
 		m.settings, cmd = m.settings.update(msg)
 		return m, cmd
 	}
+	dlr := defaultLocalRootIdx()
 	switch key.String() {
 	case "esc":
 		return m.cancelSettings()
@@ -399,25 +415,36 @@ func (m model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "shift+tab", "up":
 		return m, m.settings.focusPrev()
 	case "left":
-		if m.settings.focus == m.settings.cancelSlot() {
+		switch {
+		case m.settings.focus == m.settings.cancelSlot():
 			return m, m.settings.setFocus(m.settings.saveSlot())
+		case m.settings.focusKind() == stBrowse:
+			return m, m.settings.setFocus(m.settings.slotIndexForField(dlr))
 		}
 	case "right":
-		if m.settings.focus == m.settings.saveSlot() {
+		switch {
+		case m.settings.focus == m.settings.saveSlot():
 			return m, m.settings.setFocus(m.settings.cancelSlot())
+		case m.settings.onInput() && m.settings.focusField() == dlr && m.settings.atInputEnd():
+			return m, m.settings.setFocus(m.settings.browseSlot())
 		}
 	case "enter":
-		if m.settings.focus == m.settings.cancelSlot() {
+		switch m.settings.focusKind() {
+		case stCancel:
 			return m.cancelSettings()
+		case stBrowse:
+			return m, m.settings.openPicker()
 		}
 		// On an input or on Save: submit.
 		return m.submitSettings()
 	case " ":
-		switch m.settings.focus {
-		case m.settings.saveSlot():
+		switch m.settings.focusKind() {
+		case stSave:
 			return m.submitSettings()
-		case m.settings.cancelSlot():
+		case stCancel:
 			return m.cancelSettings()
+		case stBrowse:
+			return m, m.settings.openPicker()
 		}
 		// On an input: fall through to type the space.
 	}
@@ -607,6 +634,7 @@ func (m *model) applyRsyncCheck(res rsyncCheckMsg) {
 	if m.mode != modeSettings {
 		m.settings = newSettings(m.cfg)
 		m.settings.setWidth(m.width)
+		m.settings.termHeight = m.height
 		m.mode = modeSettings
 	}
 	m.settings.err = res.err.Error()
@@ -974,6 +1002,11 @@ func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.form, cmd = m.form.updateRemotePicker(msg)
 		return m, cmd
 	}
+	if m.form.browsingServer {
+		var cmd tea.Cmd
+		m.form, cmd = m.form.updateServerPicker(msg)
+		return m, cmd
+	}
 	if res, ok := msg.(remoteListResultMsg); ok {
 		// A listing that finished after the browser closed: seq-dropped.
 		m.form.applyRemoteListResult(res)
@@ -1014,7 +1047,13 @@ func (m model) activateFormSlot() (tea.Model, tea.Cmd, bool) {
 		m.form.cycleKind(1)
 		return m, nil, true
 	case slotServerSel:
-		m.form.cycleServer(1)
+		if m.form.serverSelIsModal() {
+			return m, m.form.openServerPicker(), true
+		}
+		// Inline radio list: pick the focused server row (field is its index).
+		if i := m.form.focusField(); i >= 0 {
+			m.form.serverSel = i
+		}
 		return m, nil, true
 	case slotRemove:
 		return m, m.form.removeSubpath(m.form.focusField()), true
@@ -1406,12 +1445,14 @@ func (m model) updateServers(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "a":
 		m.serverForm = newServerForm("", config.Server{}, m.path)
 		m.serverForm.setWidth(m.width)
+		m.serverForm.rsyncBin = m.cfg.RsyncPath
 		m.mode = modeServerForm
 		return m, textinput.Blink
 	case "e", "enter":
 		if name, ok := m.servers.selected(); ok {
 			m.serverForm = newServerForm(name, m.cfg.Servers[name], m.path)
 			m.serverForm.setWidth(m.width)
+			m.serverForm.rsyncBin = m.cfg.RsyncPath
 			m.mode = modeServerForm
 			return m, textinput.Blink
 		}
@@ -1439,11 +1480,24 @@ func (m model) updateServers(msg tea.Msg) (tea.Model, tea.Cmd) {
 // updateServerForm handles the server form modal: focus movement, esc to cancel,
 // enter/space to save. Mirrors updateSettings.
 func (m model) updateServerForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if res, ok := msg.(serverCheckResultMsg); ok {
+		return m.applyServerCheckResult(res)
+	}
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		var cmd tea.Cmd
 		m.serverForm, cmd = m.serverForm.update(msg)
 		return m, cmd
+	}
+	if m.serverForm.checking {
+		// While the connection probe is in flight only esc works: it cancels the
+		// check (bumping checkSeq abandons the in-flight result) and returns to
+		// editing.
+		if key.String() == "esc" {
+			m.serverForm.checking = false
+			m.serverForm.checkSeq++
+		}
+		return m, nil
 	}
 	switch key.String() {
 	case "esc":
@@ -1483,23 +1537,62 @@ func (m model) updateServerForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// submitServer saves the edited server to disk. On failure it keeps the modal
-// open with an error. On success it returns to the servers list.
+// submitServer validates the edited server, then probes the connection before
+// persisting anything: it kicks off the check off the UI thread and enters the
+// checking state. The save itself happens in finalizeServerSave once the check
+// comes back clean (see applyServerCheckResult); a failed check keeps the form
+// open with the error and writes nothing.
 func (m model) submitServer() (tea.Model, tea.Cmd) {
 	if err := m.serverForm.validate(); err != nil {
 		m.serverForm.err = err.Error()
 		return m, nil
 	}
 	name, srv := m.serverForm.values()
-	origName := m.serverForm.origName
 
 	// Check for duplicate name when renaming
-	if name != origName {
+	if name != m.serverForm.origName {
 		if _, exists := m.cfg.Servers[name]; exists {
 			m.serverForm.err = "server \"" + name + "\" already exists"
 			return m, nil
 		}
 	}
+
+	// Probe with the credentials that would be saved, without persisting them yet.
+	probeFile, cleanup, err := m.serverForm.probePasswordFile()
+	if err != nil {
+		m.serverForm.err = "prepare connection check: " + err.Error()
+		return m, nil
+	}
+	d := threewayrsync.Daemon{Host: srv.Host, Port: srv.Port, User: srv.User, PasswordFile: probeFile}
+	m.serverForm.err = ""
+	m.serverForm.checking = true
+	m.serverForm.checkSeq++
+	return m, checkConnectionCmd(m.serverForm.checker(), d, cleanup, m.serverForm.checkSeq)
+}
+
+// applyServerCheckResult folds a finished connection probe back into the form.
+// A stale result (esc-abandoned or superseded) is dropped by the seq stamp. A
+// clean result finalizes the save; a failed one keeps the form open with the
+// error.
+func (m model) applyServerCheckResult(res serverCheckResultMsg) (tea.Model, tea.Cmd) {
+	if !m.serverForm.checking || res.seq != m.serverForm.checkSeq {
+		return m, nil
+	}
+	m.serverForm.checking = false
+	if res.err != nil {
+		m.serverForm.err = "connection check failed: " + res.err.Error()
+		return m, nil
+	}
+	return m.finalizeServerSave()
+}
+
+// finalizeServerSave writes the edited server (and any typed password) to disk
+// and returns to the servers list. It assumes the form already validated and
+// the connection check passed. On a write failure it keeps the modal open with
+// an error.
+func (m model) finalizeServerSave() (tea.Model, tea.Cmd) {
+	name, srv := m.serverForm.values()
+	origName := m.serverForm.origName
 
 	// Resolve the password file. srv.PasswordFile is the path-field value; a
 	// typed password is written to it (or, if the field is blank, to the default

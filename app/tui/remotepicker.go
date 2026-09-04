@@ -7,6 +7,7 @@ import (
 
 	"github.com/andresbott/dibs/internal/config"
 	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -22,12 +23,15 @@ const (
 	rpLoadingDirs
 	rpDirs
 	rpError
+	rpNewDir   // typing a new folder's name (inside a module)
+	rpCreating // a folder-creation request is in flight
 )
 
 // moduleLister / dirLister are the listing functions the browser calls — a seam
 // so tests inject canned results instead of a live daemon.
 type moduleLister func(ctx context.Context, d threewayrsync.Daemon) ([]threewayrsync.Module, error)
 type dirLister func(ctx context.Context, d threewayrsync.Daemon, path string) ([]string, error)
+type dirMaker func(ctx context.Context, d threewayrsync.Daemon, path string) error
 
 // listTimeout bounds one remote listing; a daemon that accepts the connection
 // but never answers must not wedge the browser forever.
@@ -64,6 +68,25 @@ func loadDirsCmd(fn dirLister, d threewayrsync.Daemon, path string, seq int) tea
 	}
 }
 
+// remoteMakeDirResultMsg carries a finished folder-creation back into Update.
+// seq is the launch stamp (stale results are dropped); name is the created
+// folder, highlighted in the re-listing on success.
+type remoteMakeDirResultMsg struct {
+	seq  int
+	name string
+	err  error
+}
+
+// makeDirCmd creates the folder name inside d.Module at path, off the UI thread.
+func makeDirCmd(fn dirMaker, d threewayrsync.Daemon, path, name string, seq int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
+		defer cancel()
+		err := fn(ctx, d, joinSlash(path, name))
+		return remoteMakeDirResultMsg{seq: seq, name: name, err: err}
+	}
+}
+
 // remotePicker is the state of the rsync-daemon browser: the daemon it talks
 // to, the current phase, the module and path navigated into, the entries
 // listed (module names or directory names), and the cursor/scroll window over
@@ -80,6 +103,11 @@ type remotePicker struct {
 	height  int
 	focus   pickerFocus
 	errMsg  string
+
+	// New-folder flow (rpNewDir / rpCreating): input holds the typed name;
+	// pendingHighlight is the just-created folder to highlight after the re-listing.
+	input            textinput.Model
+	pendingHighlight string
 }
 
 // syncerListers returns the production module/dir listers, backed by a Syncer
@@ -102,6 +130,15 @@ func (f *formModel) listers() (moduleLister, dirLister) {
 		}
 	}
 	return mods, dirs
+}
+
+// maker resolves the form's folder-creation seam, defaulting to a Syncer-backed
+// MakeDir over the configured rsync binary.
+func (f *formModel) maker() dirMaker {
+	if f.makeDir != nil {
+		return f.makeDir
+	}
+	return (&threewayrsync.Syncer{Bin: f.rsyncBin}).MakeDir
 }
 
 // openRemotePicker opens the daemon browser for the module-path field: it
@@ -175,6 +212,13 @@ func (f *formModel) applyRemoteListResult(res remoteListResultMsg) {
 		f.remote.phase = rpDirs
 	}
 	f.remote.cursor, f.remote.offset = 0, 0
+	// After creating a folder, land the cursor on it (indexOf → 0 if it somehow
+	// isn't listed, so the cursor is always valid).
+	if f.remote.pendingHighlight != "" {
+		f.remote.cursor = indexOf(f.remote.entries, f.remote.pendingHighlight)
+		f.remote.pendingHighlight = ""
+		f.remote.ensureVisible()
+	}
 }
 
 func moduleNames(mods []threewayrsync.Module) []string {
@@ -192,9 +236,16 @@ func moduleNames(mods []threewayrsync.Module) []string {
 // tab/shift+tab jump to the buttons. While a listing is in flight only esc
 // works. The error phase offers Retry (re-issue the failed listing) and Cancel.
 func (f formModel) updateRemotePicker(msg tea.Msg) (formModel, tea.Cmd) {
-	if res, ok := msg.(remoteListResultMsg); ok {
-		f.applyRemoteListResult(res)
+	switch msg := msg.(type) {
+	case remoteListResultMsg:
+		f.applyRemoteListResult(msg)
 		return f, nil
+	case remoteMakeDirResultMsg:
+		return f.applyMakeDirResult(msg)
+	}
+	// The new-folder prompt needs the raw key message for its text input.
+	if f.remote.phase == rpNewDir {
+		return f.updateNewDir(msg)
 	}
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -202,12 +253,19 @@ func (f formModel) updateRemotePicker(msg tea.Msg) (formModel, tea.Cmd) {
 	}
 	key := k.String()
 	if key == "esc" {
+		if f.remote.phase == rpCreating {
+			// Abandon the in-flight create (its result is seq-dropped) and return
+			// to the listing rather than closing the whole browser.
+			f.browseSeq++
+			f.remote.phase = rpDirs
+			return f, nil
+		}
 		f.browsingRemote = false
 		return f, nil
 	}
 	switch f.remote.phase {
-	case rpLoadingModules, rpLoadingDirs:
-		return f, nil // only esc while loading
+	case rpLoadingModules, rpLoadingDirs, rpCreating:
+		return f, nil // only esc while loading/creating
 	case rpError:
 		return f.updateRemoteError(key)
 	}
@@ -215,6 +273,75 @@ func (f formModel) updateRemotePicker(msg tea.Msg) (formModel, tea.Cmd) {
 		return f.updateRemoteList(key)
 	}
 	return f.updateRemoteButtons(key)
+}
+
+// startNewDir opens the new-folder name prompt (only meaningful inside a module,
+// where a directory can be created).
+func (f formModel) startNewDir() (formModel, tea.Cmd) {
+	in := textinput.New()
+	in.Prompt = ""
+	in.Placeholder = "new folder name"
+	in.CharLimit = 128
+	f.remote.input = in
+	f.remote.errMsg = ""
+	f.remote.phase = rpNewDir
+	return f, f.remote.input.Focus()
+}
+
+// updateNewDir drives the new-folder name prompt: enter submits, esc returns to
+// the listing, everything else edits the name input.
+func (f formModel) updateNewDir(msg tea.Msg) (formModel, tea.Cmd) {
+	if k, ok := msg.(tea.KeyMsg); ok {
+		switch k.String() {
+		case "esc":
+			f.remote.phase = rpDirs
+			f.remote.errMsg = ""
+			return f, nil
+		case "enter":
+			return f.submitNewDir()
+		}
+	}
+	var cmd tea.Cmd
+	f.remote.input, cmd = f.remote.input.Update(msg)
+	return f, cmd
+}
+
+// submitNewDir validates the typed name and kicks off the creation. An invalid
+// name stays on the prompt with an inline error.
+func (f formModel) submitNewDir() (formModel, tea.Cmd) {
+	name := strings.TrimSpace(f.remote.input.Value())
+	switch {
+	case name == "":
+		f.remote.errMsg = "folder name is required"
+		return f, nil
+	case strings.ContainsAny(name, "/\\") || name == "." || name == "..":
+		f.remote.errMsg = "invalid folder name"
+		return f, nil
+	}
+	f.remote.errMsg = ""
+	f.remote.phase = rpCreating
+	f.browseSeq++
+	return f, makeDirCmd(f.maker(), f.remote.daemon, f.remote.path, name, f.browseSeq)
+}
+
+// applyMakeDirResult folds a finished creation back in: a stale result (esc /
+// superseded) is dropped; a failure returns to the prompt with the error and the
+// typed name kept; success re-lists the current directory, highlighting the new
+// folder.
+func (f formModel) applyMakeDirResult(res remoteMakeDirResultMsg) (formModel, tea.Cmd) {
+	if !f.browsingRemote || res.seq != f.browseSeq {
+		return f, nil
+	}
+	if res.err != nil {
+		f.remote.phase = rpNewDir
+		f.remote.errMsg = res.err.Error()
+		return f, f.remote.input.Focus()
+	}
+	f.remote.pendingHighlight = res.name
+	f.remote.phase = rpLoadingDirs
+	f.browseSeq++
+	_, dirs := f.listers()
+	return f, loadDirsCmd(dirs, f.remote.daemon, f.remote.path, f.browseSeq)
 }
 
 // updateRemoteError handles the failed-listing phase: ←→/tab switch between
@@ -268,6 +395,10 @@ func (f formModel) updateRemoteList(key string) (formModel, tea.Cmd) {
 		return f.openRemoteEntry()
 	case "a", "left":
 		return f.remoteUp()
+	case "n":
+		if f.remote.phase == rpDirs { // inside a module: a folder can be created here
+			return f.startNewDir()
+		}
 	case "tab":
 		f.remote.focus = focusSelect
 	case "shift+tab":
@@ -384,6 +515,7 @@ func (f formModel) confirmRemoteSelection() (formModel, tea.Cmd) {
 		return f, f.setFocus(f.inputSlot(idxModulePath))
 	}
 	f.inputs[idxModulePath].SetValue(joinSlash(module, path))
+	f.fillFromModulePath() // seed Name/Local root when adding a profile with an empty Name
 	f.browsingRemote = false
 	return f, f.setFocus(f.inputSlot(idxModulePath))
 }
@@ -452,15 +584,19 @@ func (rp remotePicker) view(innerWidth int) string {
 	b.WriteString("\n\n")
 	b.WriteString(rp.bodyView())
 	b.WriteString("\n\n")
-	selectLabel := "Select"
-	if rp.phase == rpError {
-		selectLabel = "Retry"
+	// The Select/Cancel (or Retry) buttons are meaningless while naming or
+	// creating a folder — the prompt drives itself with enter/esc.
+	if rp.phase != rpNewDir && rp.phase != rpCreating {
+		selectLabel := "Select"
+		if rp.phase == rpError {
+			selectLabel = "Retry"
+		}
+		buttons := lipgloss.JoinHorizontal(lipgloss.Top,
+			pickerButton(selectLabel, rp.focus == focusSelect), "   ",
+			pickerButton("Cancel", rp.focus == focusCancel))
+		b.WriteString(lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Center).Render(buttons))
+		b.WriteString("\n\n")
 	}
-	buttons := lipgloss.JoinHorizontal(lipgloss.Top,
-		pickerButton(selectLabel, rp.focus == focusSelect), "   ",
-		pickerButton("Cancel", rp.focus == focusCancel))
-	b.WriteString(lipgloss.NewStyle().Width(innerWidth).Align(lipgloss.Center).Render(buttons))
-	b.WriteString("\n\n")
 	b.WriteString(rp.hints())
 	return b.String()
 }
@@ -479,6 +615,14 @@ func (rp remotePicker) bodyView() string {
 		return pad("Loading modules…", 1)
 	case rpLoadingDirs:
 		return pad("Loading folders…", 1)
+	case rpCreating:
+		return pad("Creating folder…", 1)
+	case rpNewDir:
+		line := "New folder: " + rp.input.View()
+		if rp.errMsg != "" {
+			return pad(line+"\n"+errStyle.Render(rp.errMsg), 2)
+		}
+		return pad(line, 1)
 	case rpError:
 		return pad(errStyle.Render(rp.errMsg), 1)
 	}
@@ -524,17 +668,23 @@ func (rp remotePicker) rowView(i int) string {
 func (rp remotePicker) hints() string {
 	sep := helpTextStyle.Render(" · ")
 	switch {
-	case rp.phase == rpLoadingModules || rp.phase == rpLoadingDirs:
+	case rp.phase == rpLoadingModules || rp.phase == rpLoadingDirs || rp.phase == rpCreating:
 		return hint("esc", "Cancel")
+	case rp.phase == rpNewDir:
+		return strings.Join([]string{hint("enter", "Create"), hint("esc", "Cancel")}, sep)
 	case rp.phase == rpError:
 		return strings.Join([]string{
 			hint("enter/space", "Activate"), hint("←→", "Switch"), hint("esc", "Cancel"),
 		}, sep)
 	case rp.focus == focusList:
-		return strings.Join([]string{
+		hints := []string{
 			hint("↑↓", "Move"), hint("enter", "Open"), hint("a/←", "Up"), hint("esc", "Cancel"),
 			hint("space", "Select"), hint("tab", "Buttons"),
-		}, sep)
+		}
+		if rp.phase == rpDirs { // a folder can be created inside a module
+			hints = append(hints, hint("n", "New folder"))
+		}
+		return strings.Join(hints, sep)
 	default:
 		return strings.Join([]string{
 			hint("enter/space", "Activate"), hint("←→", "Switch"), hint("tab", "List"),

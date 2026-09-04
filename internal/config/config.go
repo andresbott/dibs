@@ -79,9 +79,14 @@ type Config struct {
 	Identity string `yaml:"identity,omitempty"`
 	// RsyncPath overrides the rsync binary used for all transfers; empty means "rsync"
 	// from PATH. Useful on macOS, where /usr/bin/rsync is Apple's openrsync.
-	RsyncPath string             `yaml:"rsync_path,omitempty"`
-	Servers   map[string]Server  `yaml:"servers,omitempty"`
-	Profiles  map[string]Profile `yaml:"profiles"`
+	RsyncPath string `yaml:"rsync_path,omitempty"`
+	// DefaultLocalRoot is the base directory new profiles' local roots default
+	// under: creating a profile prefills its local root to DefaultLocalRoot joined
+	// with the profile name (SuggestLocalRoot). Empty means no default is offered.
+	// Stored raw (a leading ~ or $VAR is expanded only when the local root is used).
+	DefaultLocalRoot string             `yaml:"default_local_root,omitempty"`
+	Servers          map[string]Server  `yaml:"servers,omitempty"`
+	Profiles         map[string]Profile `yaml:"profiles"`
 }
 
 // Load reads the YAML config at path. A missing file yields an empty config.
@@ -197,6 +202,37 @@ func ValidateRoot(root string) error {
 		return errors.New("root path must be absolute")
 	}
 	return nil
+}
+
+// ValidateDefaultLocalRoot reports whether the client's default local root is
+// usable. Empty is allowed — it disables the prefill — but a non-empty value
+// must be absolute once ~ and environment variables are expanded, since it is
+// the base new profiles' local roots are joined onto.
+func ValidateDefaultLocalRoot(root string) error {
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	if !filepath.IsAbs(ExpandRoot(root)) {
+		return errors.New("default local root must be absolute")
+	}
+	return nil
+}
+
+// SuggestLocalRoot returns the suggested local root for a new profile: base
+// joined with the profile name, so a profile named "docs" under base "~/dibs"
+// suggests "~/dibs/docs". The join is on the raw (unexpanded) base so a leading
+// ~ or $VAR is preserved for storage. An empty base returns "" (no suggestion);
+// an empty name returns the base alone.
+func SuggestLocalRoot(base, name string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return base
+	}
+	return filepath.Join(base, name)
 }
 
 // ValidateSubpath reports whether a profile subpath is usable: a non-empty, relative

@@ -29,9 +29,9 @@ var spaceKey = tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")}
 
 func TestBrowseButtonOpensPicker(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})   // Local input (slot 1)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → Local Browse button (slot 2)
-	if !m.form.currentIsButton() || m.form.focusField() != 1 {
+	m = toInput(t, m, idxLocal)                      // Local input
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → Local Browse button
+	if !m.form.currentIsButton() || m.form.focusField() != idxLocal {
 		t.Fatalf("want focus on the Local Browse button, got focus %d", m.form.focus)
 	}
 	m = update(t, m, spaceKey)
@@ -45,7 +45,7 @@ func TestBrowseButtonOpensPicker(t *testing.T) {
 
 func TestCtrlOIsInert(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // Local input
+	m = toInput(t, m, idxLocal) // Local input
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyCtrlO})
 	if m.form.browsing {
 		t.Fatal("ctrl+o should no longer open the picker")
@@ -67,7 +67,7 @@ func TestSpaceOnInputTypesSpace(t *testing.T) {
 
 func TestPickerCancelButtonKeepsValue(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // Local input
+	m = toInput(t, m, idxLocal) // Local input
 	m.form.inputs[1].SetValue("/some/typed/path")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → Local Browse button
 	m = update(t, m, spaceKey)                       // open
@@ -99,7 +99,7 @@ func TestPickerSelectFillsField(t *testing.T) {
 	}
 
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})        // Local input
+	m = toInput(t, m, idxLocal)                           // Local input
 	m.form.inputs[1].SetValue(filepath.Join(dir, "nope")) // missing → picker lists dir
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})      // → Local Browse button
 	m = update(t, m, spaceKey)                            // open picker (dir listed, "target" highlighted)
@@ -132,7 +132,7 @@ func TestPickerEnterActivatesSelect(t *testing.T) {
 	}
 
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})        // Local input
+	m = toInput(t, m, idxLocal)                           // Local input
 	m.form.inputs[1].SetValue(filepath.Join(dir, "nope")) // missing → picker lists dir
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})      // → Local Browse button
 	m = update(t, m, spaceKey)                            // open picker (dir listed, "target" highlighted)
@@ -163,7 +163,7 @@ func TestPickerSpaceSelectsImmediately(t *testing.T) {
 	}
 
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})        // Local input
+	m = toInput(t, m, idxLocal)                           // Local input
 	m.form.inputs[1].SetValue(filepath.Join(dir, "nope")) // missing → picker lists dir
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})      // → Local Browse button
 	m = update(t, m, spaceKey)                            // open picker (dir listed, "target" highlighted)
@@ -187,7 +187,7 @@ func TestPickerEnterOpensFolder(t *testing.T) {
 	}
 
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})        // Local input
+	m = toInput(t, m, idxLocal)                           // Local input
 	m.form.inputs[1].SetValue(filepath.Join(dir, "nope")) // missing → picker lists dir
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})      // → Local Browse button
 	m = update(t, m, spaceKey)                            // open picker (dir listed, "target" highlighted)
@@ -210,7 +210,7 @@ func TestPickerLeftGoesUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = toInput(t, m, idxLocal)
 	m.form.inputs[1].SetValue(target) // existing → opens in root, "target" highlighted
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
 	m = update(t, m, spaceKey) // open: dir == root
@@ -235,7 +235,7 @@ func TestPickerLeftGoesUp(t *testing.T) {
 // up a directory — up-a-directory is still reachable via a/←, just not esc.
 func TestPickerEscCancelsFromList(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // Local input
+	m = toInput(t, m, idxLocal) // Local input
 	m.form.inputs[1].SetValue("/some/typed/path")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // → Local Browse button
 	m = update(t, m, spaceKey)                       // open (list focus)
@@ -256,7 +256,7 @@ func TestPickerEscCancelsFromList(t *testing.T) {
 
 func TestPickerTabCyclesFocus(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = toInput(t, m, idxLocal)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
 	m = update(t, m, spaceKey) // open picker
 	if m.form.picker.focus != focusList {
@@ -278,7 +278,7 @@ func TestPickerTabCyclesFocus(t *testing.T) {
 
 func TestPickerButtonSwitchKeys(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = toInput(t, m, idxLocal)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
 	m = update(t, m, spaceKey)                     // open picker
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // → Select
@@ -300,7 +300,7 @@ func TestPickerButtonSwitchKeys(t *testing.T) {
 // meaning depending on which control is focused.
 func TestPickerEscCancelsFromButton(t *testing.T) {
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = toInput(t, m, idxLocal)
 	m.form.inputs[1].SetValue("/some/typed/path")
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
 	m = update(t, m, spaceKey)                     // open picker
@@ -325,7 +325,7 @@ func TestPickerPageKeysMove5(t *testing.T) {
 		}
 	}
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = toInput(t, m, idxLocal)
 	m.form.inputs[1].SetValue(filepath.Join(dir, "nope")) // missing child → picker lists dir directly
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
 	m = update(t, m, spaceKey) // open picker listing dir's 7 subdirs
@@ -349,7 +349,7 @@ func TestPickerReopenHighlightsInParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = toInput(t, m, idxLocal)
 	m.form.inputs[1].SetValue(target)
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
 	m = update(t, m, spaceKey)
@@ -358,6 +358,148 @@ func TestPickerReopenHighlightsInParent(t *testing.T) {
 	}
 	if got := m.form.picker.entries[m.form.picker.cursor]; got != "target" {
 		t.Fatalf("reopen should highlight %q, cursor on %q", "target", got)
+	}
+}
+
+// TestDirPickerCreateDir: startNewDir + createDir makes the folder on disk,
+// re-lists the current directory, and highlights the new folder.
+func TestDirPickerCreateDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "existing"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	p := dirPicker{dir: dir, entries: readSubdirs(dir), height: 6}
+	p.startNewDir()
+	if !p.naming {
+		t.Fatal("startNewDir should enter the naming state")
+	}
+	p.input.SetValue("made")
+	p.createDir()
+
+	if p.naming {
+		t.Fatal("a successful create should leave the naming state")
+	}
+	if info, err := os.Stat(filepath.Join(dir, "made")); err != nil || !info.IsDir() {
+		t.Fatalf("made should exist as a dir: err=%v", err)
+	}
+	if p.entries[p.cursor] != "made" {
+		t.Fatalf("cursor should land on the new folder, got %q", p.entries[p.cursor])
+	}
+}
+
+// TestDirPickerCreateDirRejectsInvalid: blank and path-bearing names are refused
+// inline without creating anything.
+func TestDirPickerCreateDirRejectsInvalid(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"", "a/b", "..", "."} {
+		p := dirPicker{dir: dir, entries: readSubdirs(dir), height: 6}
+		p.startNewDir()
+		p.input.SetValue(name)
+		p.createDir()
+		if !p.naming || p.errMsg == "" {
+			t.Errorf("name %q: want to stay naming with an error, naming=%v err=%q", name, p.naming, p.errMsg)
+		}
+	}
+	if got := readSubdirs(dir); len(got) != 0 {
+		t.Fatalf("no folders should have been created, got %v", got)
+	}
+}
+
+// TestDirPickerCreateDirExistingIsOk: creating a folder that already exists is a
+// no-op that just highlights it (no error).
+func TestDirPickerCreateDirExistingIsOk(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "dup"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	p := dirPicker{dir: dir, entries: readSubdirs(dir), height: 6}
+	p.startNewDir()
+	p.input.SetValue("dup")
+	p.createDir()
+	if p.naming || p.errMsg != "" {
+		t.Fatalf("re-creating an existing folder should succeed, naming=%v err=%q", p.naming, p.errMsg)
+	}
+	if p.entries[p.cursor] != "dup" {
+		t.Fatalf("cursor should land on the existing folder, got %q", p.entries[p.cursor])
+	}
+}
+
+// TestPickerNewFolderViaKeys: the whole flow through the form's local picker —
+// "n", type a name, Enter — creates and highlights the folder.
+func TestPickerNewFolderViaKeys(t *testing.T) {
+	dir := t.TempDir()
+	m := openAddForm(t)
+	m = toInput(t, m, idxLocal)
+	m.form.inputs[idxLocal].SetValue(filepath.Join(dir, "nope")) // missing → picker lists dir
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})             // → Local Browse
+	m = update(t, m, spaceKey)                                   // open picker in dir
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if !m.form.picker.naming {
+		t.Fatal("n should open the new-folder prompt")
+	}
+	for _, r := range "made" {
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.form.picker.naming {
+		t.Fatal("enter should finish the create")
+	}
+	if !m.form.browsing {
+		t.Fatal("creating a folder should keep the picker open")
+	}
+	if info, err := os.Stat(filepath.Join(dir, "made")); err != nil || !info.IsDir() {
+		t.Fatalf("made should exist: err=%v", err)
+	}
+	if got := m.form.picker.entries[m.form.picker.cursor]; got != "made" {
+		t.Fatalf("new folder should be highlighted, got %q", got)
+	}
+}
+
+// TestPickerNewFolderEscCancels: esc on the prompt returns to the list without
+// creating anything.
+func TestPickerNewFolderEscCancels(t *testing.T) {
+	dir := t.TempDir()
+	m := openAddForm(t)
+	m = toInput(t, m, idxLocal)
+	m.form.inputs[idxLocal].SetValue(filepath.Join(dir, "nope"))
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	m = update(t, m, spaceKey)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.form.picker.naming {
+		t.Fatal("esc should leave the naming state")
+	}
+	if !m.form.browsing {
+		t.Fatal("esc on the prompt should not close the whole picker")
+	}
+	if got := readSubdirs(dir); len(got) != 0 {
+		t.Fatalf("esc must not create a folder, got %v", got)
+	}
+}
+
+// TestSettingsPickerNewFolderViaKeys: the same flow works in the settings
+// Default-local-root picker.
+func TestSettingsPickerNewFolderViaKeys(t *testing.T) {
+	dir := t.TempDir()
+	m := newModel(filepath.Join(t.TempDir(), "config.yaml"), testConfig())
+	m = update(t, m, tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")}) // open settings
+	m.settings.inputs[defaultLocalRootIdx()].SetValue(filepath.Join(dir, "nope"))
+	m = tabSettingsTo(t, m, m.settings.browseSlot())
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter}) // open picker
+	if !m.settings.browsing {
+		t.Fatal("picker should be open")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	if !m.settings.picker.naming {
+		t.Fatal("n should open the new-folder prompt in settings")
+	}
+	for _, r := range "cfgmade" {
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if info, err := os.Stat(filepath.Join(dir, "cfgmade")); err != nil || !info.IsDir() {
+		t.Fatalf("cfgmade should exist: err=%v", err)
 	}
 }
 
@@ -589,7 +731,7 @@ func TestDirPickerViewContent(t *testing.T) {
 func TestPickerSelectEmptyDirUsesCurrentDir(t *testing.T) {
 	empty := t.TempDir() // no sub-directories
 	m := openAddForm(t)
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = toInput(t, m, idxLocal)
 	m.form.inputs[1].SetValue(filepath.Join(empty, "nope")) // missing → picker lists `empty`
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
 	m = update(t, m, spaceKey) // open (empty list)

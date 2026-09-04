@@ -16,6 +16,19 @@ import (
 // errFake stands in for a failed rsync binary check in the tests below.
 var errFake = errors.New("openrsync detected (fake)")
 
+// tabSettingsTo presses Tab until settings focus lands on the target slot,
+// failing if it cycles all the way around without reaching it.
+func tabSettingsTo(t *testing.T, m model, target int) model {
+	t.Helper()
+	for i := 0; m.settings.focus != target; i++ {
+		if i > m.settings.numSlots() {
+			t.Fatalf("never reached settings slot %d", target)
+		}
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	}
+	return m
+}
+
 // TestIdentityShortcutOpensSettings: "i" from the main list opens the client
 // settings modal with the Identity input focused.
 func TestIdentityShortcutOpensSettings(t *testing.T) {
@@ -87,10 +100,9 @@ func TestSettingsSaveViaButton(t *testing.T) {
 	m := newModel(p, testConfig())
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
 	m.settings.inputs[0].SetValue("bob@nas")
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // Identity -> Rsync path
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // Rsync path -> Save
+	m = tabSettingsTo(t, m, m.settings.saveSlot())
 	if m.settings.focus != m.settings.saveSlot() {
-		t.Fatalf("tab from the last input should focus Save, got %d", m.settings.focus)
+		t.Fatalf("tab through the fields should reach Save, got %d", m.settings.focus)
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	if m.mode != modeMain {
@@ -106,11 +118,9 @@ func TestSettingsSaveViaButton(t *testing.T) {
 func TestSettingsFocusNav(t *testing.T) {
 	m := newModel("/tmp/x.yaml", testConfig())
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
-	for range m.settings.inputs {
-		m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
-	}
+	m = tabSettingsTo(t, m, m.settings.saveSlot())
 	if m.settings.focus != m.settings.saveSlot() {
-		t.Fatalf("tabbing past the inputs should focus Save, got %d", m.settings.focus)
+		t.Fatalf("tabbing past the fields should focus Save, got %d", m.settings.focus)
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight})
 	if m.settings.focus != m.settings.cancelSlot() {
@@ -236,10 +246,7 @@ func TestStartupSettingsEscQuits(t *testing.T) {
 // dialog's relabelled Cancel) also exits the app.
 func TestStartupSettingsQuitButtonQuits(t *testing.T) {
 	m := newModel("/tmp/x.yaml", testConfig()).withStartupSettings()
-	for range m.settings.inputs {
-		m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // through the inputs to Save
-	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab}) // Save -> Quit
+	m = tabSettingsTo(t, m, m.settings.cancelSlot()) // through the fields to Quit
 	if m.settings.focus != m.settings.cancelSlot() {
 		t.Fatalf("want focus on the quit slot, got %d", m.settings.focus)
 	}
@@ -368,6 +375,107 @@ func TestSettingsSavePersistsRsyncPath(t *testing.T) {
 	}
 	if saved.RsyncPath != rsyncAbs {
 		t.Errorf("persisted rsync_path = %q, want %q", saved.RsyncPath, rsyncAbs)
+	}
+}
+
+// TestSettingsSavePersistsDefaultLocalRoot: saving with a Default local root writes
+// default_local_root to disk (raw, unexpanded).
+func TestSettingsSavePersistsDefaultLocalRoot(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	m := newModel(p, testConfig())
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m.settings.inputs[0].SetValue("alice@laptop")
+	m.settings.inputs[2].SetValue("~/dibs") // Default local root
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.mode != modeMain {
+		t.Fatalf("want modeMain after save, got %d (err %q)", m.mode, m.settings.err)
+	}
+	if m.cfg.DefaultLocalRoot != "~/dibs" {
+		t.Errorf("cfg DefaultLocalRoot = %q, want ~/dibs", m.cfg.DefaultLocalRoot)
+	}
+	saved, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.DefaultLocalRoot != "~/dibs" {
+		t.Errorf("persisted default_local_root = %q, want ~/dibs", saved.DefaultLocalRoot)
+	}
+}
+
+// TestSettingsSaveRejectsRelativeDefaultLocalRoot: a non-empty, non-absolute
+// Default local root is rejected inline and never persisted.
+func TestSettingsSaveRejectsRelativeDefaultLocalRoot(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	m := newModel(p, testConfig())
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	m.settings.inputs[0].SetValue("alice@laptop")
+	m.settings.inputs[2].SetValue("relative/dibs")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.mode != modeSettings {
+		t.Fatalf("a relative default local root should keep the modal open, got mode %d", m.mode)
+	}
+	if m.settings.err == "" {
+		t.Error("expected an inline error for a relative default local root")
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Errorf("a rejected save must not write a config file (stat err = %v)", err)
+	}
+}
+
+// TestSettingsBrowseButtonRendered: the Default local root field carries an
+// inline Browse button.
+func TestSettingsBrowseButtonRendered(t *testing.T) {
+	s := newSettings(&config.Config{})
+	s.setWidth(80)
+	if !strings.Contains(s.View(), "[ Browse ]") {
+		t.Errorf("settings view should show a Browse button for the default local root:\n%s", s.View())
+	}
+}
+
+// settingsToBrowse opens the settings modal and tabs focus onto the Default
+// local root's Browse button.
+func settingsToBrowse(t *testing.T) model {
+	t.Helper()
+	m := newModel("/tmp/x.yaml", testConfig())
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	for i := 0; m.settings.focus != m.settings.browseSlot(); i++ {
+		if i > m.settings.numSlots() {
+			t.Fatal("never reached the Browse slot")
+		}
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	}
+	return m
+}
+
+// TestSettingsBrowseOpensPicker: activating the Browse button opens the
+// directory picker.
+func TestSettingsBrowseOpensPicker(t *testing.T) {
+	m := settingsToBrowse(t)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.settings.browsing {
+		t.Fatal("enter on the Browse button should open the directory picker")
+	}
+}
+
+// TestSettingsBrowseSelectsHighlightedDir: selecting in the picker writes the
+// chosen directory into the Default local root field and closes the picker.
+func TestSettingsBrowseSelectsHighlightedDir(t *testing.T) {
+	dir := t.TempDir()
+	m := settingsToBrowse(t)
+	dlr := defaultLocalRootIdx()
+	m.settings.inputs[dlr].SetValue(dir)             // picker opens on dir's parent, dir highlighted
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter}) // open picker
+	if !m.settings.browsing {
+		t.Fatal("picker should be open")
+	}
+	m = update(t, m, spaceKey) // select the highlighted directory
+	if m.settings.browsing {
+		t.Fatal("selecting should close the picker")
+	}
+	if got := m.settings.inputs[dlr].Value(); got != dir {
+		t.Fatalf("Default local root = %q, want the selected dir %q", got, dir)
 	}
 }
 

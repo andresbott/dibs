@@ -429,28 +429,37 @@ func (m model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.settings.setFocus(m.settings.browseSlot())
 		}
 	case "enter":
-		switch m.settings.focusKind() {
-		case stCancel:
-			return m.cancelSettings()
-		case stBrowse:
-			return m, m.settings.openPicker()
+		if mm, cmd, handled := m.activateSettingsFocus(); handled {
+			return mm, cmd
 		}
-		// On an input or on Save: submit.
-		return m.submitSettings()
+		return m.submitSettings() // on an input: submit
 	case " ":
-		switch m.settings.focusKind() {
-		case stSave:
-			return m.submitSettings()
-		case stCancel:
-			return m.cancelSettings()
-		case stBrowse:
-			return m, m.settings.openPicker()
+		if mm, cmd, handled := m.activateSettingsFocus(); handled {
+			return mm, cmd
 		}
 		// On an input: fall through to type the space.
 	}
 	var cmd tea.Cmd
 	m.settings, cmd = m.settings.update(msg)
 	return m, cmd
+}
+
+// activateSettingsFocus performs the action for the focused button — Save
+// submits, Cancel closes, Browse opens the directory picker — returning
+// handled=false when focus is on a plain input (which the caller then treats as
+// submit for enter, or a typed character for space).
+func (m model) activateSettingsFocus() (tea.Model, tea.Cmd, bool) {
+	switch m.settings.focusKind() {
+	case stSave:
+		mm, cmd := m.submitSettings()
+		return mm, cmd, true
+	case stCancel:
+		mm, cmd := m.cancelSettings()
+		return mm, cmd, true
+	case stBrowse:
+		return m, m.settings.openPicker(), true
+	}
+	return m, nil, false
 }
 
 // cancelSettings leaves the settings modal: it quits the app for the mandatory

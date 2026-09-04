@@ -25,60 +25,15 @@ func (s *settingsModel) openPicker() tea.Cmd {
 // focus moves/opens/ascends and space selects; button focus toggles Select/
 // Cancel; esc cancels throughout.
 func (s settingsModel) updatePicker(msg tea.Msg) (settingsModel, tea.Cmd) {
-	if s.picker.naming {
-		return s, s.picker.updateNewDir(msg)
-	}
-	k, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return s, nil
-	}
-	if s.picker.focus == focusList {
-		switch k.String() {
-		case "w", "up":
-			s.picker.moveUp()
-		case "s", "down":
-			s.picker.moveDown()
-		case "pgup":
-			s.picker.moveBy(-5)
-		case "pgdown":
-			s.picker.moveBy(5)
-		case " ":
-			return s.confirmSelection()
-		case "enter", "d", "right":
-			s.picker.open()
-		case "a", "left":
-			s.picker.upDir()
-		case "n":
-			return s, s.picker.startNewDir()
-		case "tab":
-			s.picker.focusNext()
-		case "shift+tab":
-			s.picker.focusPrev()
-		case "esc":
-			s.browsing = false
-		}
-		return s, nil
-	}
-	switch k.String() {
-	case "tab":
-		s.picker.focusNext()
-	case "shift+tab":
-		s.picker.focusPrev()
-	case "left", "a", "right", "d":
-		if s.picker.focus == focusSelect {
-			s.picker.focus = focusCancel
-		} else {
-			s.picker.focus = focusSelect
-		}
-	case "enter", " ":
-		if s.picker.focus == focusSelect {
-			return s.confirmSelection()
-		}
-		s.browsing = false // Cancel button
-	case "esc":
+	switch res, cmd := s.picker.handleKey(msg); res {
+	case pickerConfirm:
+		return s.confirmSelection()
+	case pickerCancel:
 		s.browsing = false
+		return s, cmd
+	default:
+		return s, cmd
 	}
-	return s, nil
 }
 
 // confirmSelection writes the chosen folder into the Default local root field

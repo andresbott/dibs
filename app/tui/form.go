@@ -649,14 +649,8 @@ func (f formModel) values() (string, config.Profile) {
 }
 
 func (f formModel) View() string {
-	if f.browsing {
-		return f.pickerView()
-	}
-	if f.browsingRemote {
-		return f.remotePickerView()
-	}
-	if f.browsingServer {
-		return f.serverPickerView()
+	if v, ok := f.browseView(); ok {
+		return v
 	}
 	title := "Add profile"
 	if f.origName != "" {
@@ -756,6 +750,21 @@ func (f formModel) View() string {
 	// already reserve those two columns (see setWidth).
 	body := lipgloss.NewStyle().Padding(0, 1).Render(content.String())
 	return titledBox(title, body, f.modalWidth(), lipgloss.Height(body)+2, true)
+}
+
+// browseView returns the overlay to render when a picker/browser is open (the
+// local directory picker, the rsync module browser, or the server chooser),
+// and whether one is open at all.
+func (f formModel) browseView() (string, bool) {
+	switch {
+	case f.browsing:
+		return f.pickerView(), true
+	case f.browsingRemote:
+		return f.remotePickerView(), true
+	case f.browsingServer:
+		return f.serverPickerView(), true
+	}
+	return "", false
 }
 
 // sectionHeader renders a group's titled divider — "┄┄ Title ┄┄┄…" spanning

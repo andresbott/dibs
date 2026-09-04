@@ -34,9 +34,9 @@ func (s *Syncer) MakeDir(ctx context.Context, d Daemon, path string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	src := filepath.Join(tmp, leaf)
-	if err := os.Mkdir(src, 0o755); err != nil {
+	if err := os.Mkdir(src, 0o750); err != nil {
 		return err
 	}
 

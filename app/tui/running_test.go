@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/lifecycle"
-	"github.com/andresbott/dibs/internal/status"
+	"github.com/candy-tools/dibs/internal/lifecycle"
+	"github.com/candy-tools/dibs/internal/status"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/baseline"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/marker"
+	"github.com/candy-tools/dibs/internal/baseline"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/marker"
 )
 
 // TestCheckinReleasesWhenInSync: heldFixture leaves local == remote == base,

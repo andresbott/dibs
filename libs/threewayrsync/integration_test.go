@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	tw "github.com/andresbott/dibs/libs/threewayrsync"
+	tw "github.com/candy-tools/dibs/libs/threewayrsync"
 )
 
 func requireRsync(t *testing.T) {

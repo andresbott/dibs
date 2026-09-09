@@ -1,4 +1,4 @@
-module github.com/andresbott/dibs
+module github.com/candy-tools/dibs
 
 go 1.26
 

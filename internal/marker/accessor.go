@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 )
 
 // Accessor reads, writes, and removes the per-profile marker on a remote root reached

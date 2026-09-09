@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/marker"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/marker"
 )
 
 func TestCheckRootsExistence(t *testing.T) {

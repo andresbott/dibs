@@ -10,12 +10,13 @@ a marker behind so others can see a folder is checked out and by whom.
 
 ### macOS (Homebrew)
 
-A macOS cask is published into this repository on every tagged release. Because the repo
-isn't named `homebrew-*`, tap it with an explicit URL, then install:
+A macOS cask is published to the
+[candy-tools/homebrew-tap](https://github.com/candy-tools/homebrew-tap) tap on every
+tagged release. Add the tap, then install:
 
 ```bash
-brew tap andresbott/dibs https://github.com/andresbott/dibs
-brew install --cask andresbott/dibs/dibs
+brew tap candy-tools/tap
+brew install --cask dibs
 ```
 
 `rsync` is pulled in as a dependency, and `brew upgrade` will track future releases.
@@ -23,7 +24,7 @@ brew install --cask andresbott/dibs/dibs
 ### Debian / Ubuntu
 
 Download the `.deb` for your architecture from the
-[releases page](https://github.com/andresbott/dibs/releases) and install it
+[releases page](https://github.com/candy-tools/dibs/releases) and install it
 (this also pulls in `rsync`):
 
 ```bash
@@ -33,7 +34,7 @@ sudo apt install ./dibs_*_amd64.deb
 ### Other
 
 Grab a prebuilt `tar.gz` archive from the
-[releases page](https://github.com/andresbott/dibs/releases).
+[releases page](https://github.com/candy-tools/dibs/releases).
 
 ## Usage
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

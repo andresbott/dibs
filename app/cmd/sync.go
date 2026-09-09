@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/andresbott/dibs/app/metainfo"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/ident"
-	"github.com/andresbott/dibs/internal/lifecycle"
+	"github.com/candy-tools/dibs/app/metainfo"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/lifecycle"
 	"github.com/spf13/cobra"
 )
 

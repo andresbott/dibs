@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 )
 
 // RemoteIsLocalPath reports whether the profile's remote root is a plain filesystem path

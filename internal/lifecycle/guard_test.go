@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/ident"
-	"github.com/andresbott/dibs/internal/marker"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/marker"
 )
 
 func TestSyncRefusesUnlistedLocalContent(t *testing.T) {

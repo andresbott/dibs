@@ -3,9 +3,9 @@ package tui
 import (
 	"testing"
 
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/ident"
-	"github.com/andresbott/dibs/internal/sanity"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/sanity"
 )
 
 func TestVisibleActionsHiddenOnConfigErr(t *testing.T) {

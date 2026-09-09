@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/baseline"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/internal/baseline"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 )
 
 func writeStatusTestConfig(t *testing.T, profiles map[string]config.Profile) string {

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/baseline"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/lifecycle"
-	"github.com/andresbott/dibs/internal/status"
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/internal/baseline"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/lifecycle"
+	"github.com/candy-tools/dibs/internal/status"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )

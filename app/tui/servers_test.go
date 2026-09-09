@@ -4,7 +4,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/config"
 )
 
 // setServerFormFields is a test helper that writes the input values into the

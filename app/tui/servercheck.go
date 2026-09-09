@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

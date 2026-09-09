@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 )
 
 // State is a profile's checkout state. Files is the base manifest — size and mtime per

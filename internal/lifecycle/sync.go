@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/andresbott/dibs/internal/baseline"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/ident"
-	"github.com/andresbott/dibs/internal/marker"
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/internal/baseline"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/marker"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 )
 
 // ConflictError reports that some paths changed on both sides and the sync

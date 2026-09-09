@@ -13,8 +13,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/marker"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/marker"
 )
 
 // Result is the lightweight state of a profile.

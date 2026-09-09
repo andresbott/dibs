@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/dibs/internal/baseline"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/marker"
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/internal/baseline"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/marker"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 )
 
 func requireRsync(t *testing.T) {

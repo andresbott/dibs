@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/ident"
-	"github.com/andresbott/dibs/internal/marker"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/marker"
 )
 
 // heldFixture builds a checked-out profile whose local and remote agree on one

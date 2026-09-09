@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/marker"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/marker"
 )
 
 // Stats is the summary of a profile's local tree.

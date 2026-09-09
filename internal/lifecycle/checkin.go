@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/andresbott/dibs/internal/baseline"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/baseline"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/ident"
 )
 
 // validateCleanTarget guards checkin --clean's os.RemoveAll: it refuses the

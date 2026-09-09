@@ -28,6 +28,9 @@ dist/
 # local env (secrets, API keys)
 .env
 
+# password files
+*.pw
+
 # editor backup files
 *~
 

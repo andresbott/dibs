@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/config"
 )
 
 // writeConfigProfile is writeConfig for a fully specified profile (subpaths,

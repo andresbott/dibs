@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/config"
 )
 
 func TestServerPasswordPath(t *testing.T) {

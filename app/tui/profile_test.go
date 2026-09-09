@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/dibs/internal/ident"
-	"github.com/andresbott/dibs/internal/lifecycle"
-	"github.com/andresbott/dibs/internal/marker"
-	"github.com/andresbott/dibs/internal/sanity"
+	"github.com/candy-tools/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/lifecycle"
+	"github.com/candy-tools/dibs/internal/marker"
+	"github.com/candy-tools/dibs/internal/sanity"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

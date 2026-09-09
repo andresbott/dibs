@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/config"
 )
 
 // runCLI runs the built dibs binary with "--config configPath" plus args, under a

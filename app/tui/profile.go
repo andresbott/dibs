@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/andresbott/dibs/internal/ident"
-	"github.com/andresbott/dibs/internal/lifecycle"
-	"github.com/andresbott/dibs/internal/localstat"
-	"github.com/andresbott/dibs/internal/sanity"
-	"github.com/andresbott/dibs/internal/status"
+	"github.com/candy-tools/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/lifecycle"
+	"github.com/candy-tools/dibs/internal/localstat"
+	"github.com/candy-tools/dibs/internal/sanity"
+	"github.com/candy-tools/dibs/internal/status"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )

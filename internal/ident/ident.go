@@ -8,7 +8,7 @@ package ident
 import (
 	"os"
 
-	"github.com/andresbott/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/config"
 )
 
 // Ident is the resolved identity of the current machine/user.

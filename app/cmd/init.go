@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/ident"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/ident"
 	"github.com/spf13/cobra"
 )
 

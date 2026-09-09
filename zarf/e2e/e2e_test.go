@@ -29,7 +29,7 @@ func runMain(m *testing.M) int {
 	defer os.RemoveAll(tmpDir)
 
 	binPath = filepath.Join(tmpDir, "dibs")
-	build := exec.Command("go", "build", "-o", binPath, "github.com/andresbott/dibs")
+	build := exec.Command("go", "build", "-o", binPath, "github.com/candy-tools/dibs")
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {

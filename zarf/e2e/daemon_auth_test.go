@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/config"
 )
 
 // startAuthRsyncDaemon launches a loopback rsync daemon exporting moduleDir as the

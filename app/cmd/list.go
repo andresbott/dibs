@@ -5,7 +5,7 @@ import (
 	"io"
 	"sort"
 
-	"github.com/andresbott/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/config"
 	"github.com/spf13/cobra"
 )
 

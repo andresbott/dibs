@@ -8,10 +8,10 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/andresbott/dibs/app/metainfo"
-	"github.com/andresbott/dibs/app/tui"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/app/metainfo"
+	"github.com/candy-tools/dibs/app/tui"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

@@ -12,10 +12,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/andresbott/dibs/internal/baseline"
-	"github.com/andresbott/dibs/internal/config"
-	"github.com/andresbott/dibs/internal/marker"
-	"github.com/andresbott/dibs/libs/threewayrsync"
+	"github.com/candy-tools/dibs/internal/baseline"
+	"github.com/candy-tools/dibs/internal/config"
+	"github.com/candy-tools/dibs/internal/marker"
+	"github.com/candy-tools/dibs/libs/threewayrsync"
 )
 
 // Change is one planned copy: a path and whether it modifies an existing file

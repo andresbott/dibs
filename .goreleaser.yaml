@@ -19,9 +19,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/andresbott/dibs/app/metainfo.Version={{.Version}}
-      - -X github.com/andresbott/dibs/app/metainfo.BuildTime={{.Date}}
-      - -X github.com/andresbott/dibs/app/metainfo.ShaVer={{.Commit}}
+      - -X github.com/candy-tools/dibs/app/metainfo.Version={{.Version}}
+      - -X github.com/candy-tools/dibs/app/metainfo.BuildTime={{.Date}}
+      - -X github.com/candy-tools/dibs/app/metainfo.ShaVer={{.Commit}}
     binary: dibs
 
 archives:
@@ -48,7 +48,7 @@ nfpms:
     formats:
       - deb
     maintainer: "Andres Bott <contact@andresbott.com>"
-    homepage: "https://github.com/andresbott/dibs"
+    homepage: "https://github.com/candy-tools/dibs"
     description: "CLI to check out/in work directories over network drives via rsync"
     license: "AGPL-3.0"
     section: utils
@@ -64,20 +64,24 @@ nfpms:
         - statically-linked-binary
 
 homebrew_casks:
-  # publish a macOS cask into this same repo (Casks/dibs.rb).
-  # linux is distributed as a .deb, so a macOS-only cask is fine — and it's the
-  # non-deprecated successor to `brews`. the default GITHUB_TOKEN can push here.
+  # publish a macOS cask into the dedicated tap repo (candy-tools/homebrew-tap,
+  # Casks/dibs.rb). linux is distributed as a .deb, so a macOS-only cask is fine
+  # — and it's the non-deprecated successor to `brews`. pushing to a *different*
+  # repo needs a cross-repo PAT; the default GITHUB_TOKEN is scoped to this repo
+  # only. see HOMEBREW_TAP_GITHUB_TOKEN in .github/workflows/release.yml.
   - name: dibs
     binaries:
       - dibs
     repository:
-      owner: andresbott
-      name: dibs
+      owner: candy-tools
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Casks
     commit_author:
       name: Andres Bott
       email: contact@andresbott.com
-    homepage: "https://github.com/andresbott/dibs"
+    homepage: "https://github.com/candy-tools/dibs"
     description: "CLI to check out/in work directories over network drives via rsync"
     dependencies:
       - formula: rsync
